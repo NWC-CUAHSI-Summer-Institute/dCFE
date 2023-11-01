@@ -1,12 +1,12 @@
 defaults:
   - _self_
-  - data: \config\test
-  - models: \config\base
+  - data: /config/test
+  - models: /config/base
 
-cwd: G:\Shared drives\SI_NextGen_Aridity\dCFE\
+cwd: /scratch/sbhuiya2/SI2023/dCFE/
 save_name: debugger
-output_dir: ${cwd}\output\
-camels_attr_file: ${cwd}\data\camels_attributes_concat.csv
+output_dir: ${cwd}/output/
+camels_attr_file: ${cwd}/data/camels_attributes_concat.csv
 device: cpu
 num_processes: 1
 
@@ -17,7 +17,7 @@ soil_scheme: classic # Choose from: "ode" or "classic"
 ######################################################
 
 synthetic:
-  output_dir: ${cwd}\data\synthetic_case\
+  output_dir: ${cwd}/data/synthetic_case/
   param_nams: ${basin_id}_synthetic_params_${soil_scheme}
   nams: synthetic_${soil_scheme}.csv
   refkdt: 3
