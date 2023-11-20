@@ -1,15 +1,21 @@
 import logging
 from omegaconf import DictConfig
 import time
+from tqdm import tqdm
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime
+import hydroeval as he
+import os
+import pandas as pd
+
 import torch
 
 torch.set_default_dtype(torch.float64)
-
 # torch.autograd.set_detect_anomaly(True)
-
 from torch import Tensor
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+from torch.optim.lr_scheduler import StepLR
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -19,17 +25,6 @@ from data.metrics import calculate_nse
 from models.dCFE import dCFE
 from utils.ddp_setup import find_free_port, cleanup
 
-import numpy as np
-
-import hydroeval as he
-
-import matplotlib.pyplot as plt
-from datetime import datetime
-
-import glob
-import os
-import pandas as pd
-import json
 
 log = logging.getLogger("agents.DifferentiableCFE")
 
@@ -64,9 +59,23 @@ class DifferentiableCFE(BaseAgent):
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=cfg.models.hyperparameters.learning_rate
         )
+        self.scheduler = StepLR(
+            self.optimizer,
+            step_size=cfg.models.hyperparameters.step_size,
+            gamma=cfg.models.hyperparameters.gamma,
+        )
+
         self.current_epoch = 0
 
         self.output_dir = self.create_output_dir()
+
+        self.states = torch.zeros(
+            [
+                self.data.num_basins,
+                self.data.n_timesteps,
+                self.cfg.models.mlp.num_states,
+            ]
+        )
 
         # # Prepare for the DDP
         # free_port = find_free_port()
@@ -131,17 +140,21 @@ class DifferentiableCFE(BaseAgent):
 
         # Reset the model states and parameters
         # refkdt and satdk gets updated in the model as well
-        self.model.mlp_forward()
+        self.model.mlp_forward(self.states)
         self.model.initialize()
 
-        n = self.data.n_timesteps
-        y_hat = torch.empty([self.data.num_basins, n], device=self.cfg.device)
+        y_hat = torch.empty(
+            [self.data.num_basins, self.data.n_timesteps], device=self.cfg.device
+        )
         y_hat.fill_(float("nan"))
+
         # y_hat = torch.zeros(n, device=self.cfg.device)  # runoff
 
         for t, (x, y_t) in enumerate(tqdm(self.data_loader, desc="Processing data")):
-            runoff = self.model(x, t)  #
+            runoff, cfe_states = self.model(x, t)  #
             y_hat[:, t] = runoff
+            # TODO: check this detach() is okay. Currently normalization function does not handle gradient-attached tensor
+            self.states[:, t, :] = cfe_states.detach()
 
         # Run the following to get a visual image of tesnors
         #######
@@ -193,7 +206,7 @@ class DifferentiableCFE(BaseAgent):
         self.save_result(
             y_hat=y_hat_np,
             y_t=y_t_np,
-            out_filename=f"epoch{self.current_epoch}",
+            out_filename=f"epoch{self.current_epoch+1}",
             plot_figure=False,
         )
 
@@ -206,7 +219,7 @@ class DifferentiableCFE(BaseAgent):
 
         print("calculate loss")
         loss = self.criterion(y_hat_dropped, y_t_dropped)
-        log.info(f"loss at epoch {self.current_epoch}: {loss:.6f}")
+        log.info(f"loss at epoch {self.current_epoch+1}: {loss:.6f}")
 
         # Backpropagate the error
         start = time.perf_counter()
@@ -227,7 +240,8 @@ class DifferentiableCFE(BaseAgent):
         print("Start optimizer")
         self.optimizer.step()
         print("End optimizer")
-
+        self.scheduler.step()
+        print("Current Learning Rate:", self.optimizer.param_groups[0]["lr"])
         return loss
 
     def finalize(self):
@@ -247,7 +261,7 @@ class DifferentiableCFE(BaseAgent):
             for t, (x, y_t) in enumerate(
                 tqdm(self.data_loader, desc="Processing data")
             ):
-                runoff = self.model(x, t)  #
+                runoff, _ = self.model(x, t)  #
                 y_hat[:, t] = runoff.transpose(dim0=0, dim1=1)
 
             y_hat_ = y_hat.detach().numpy()
@@ -276,10 +290,10 @@ class DifferentiableCFE(BaseAgent):
         fig, axes = plt.subplots()
         axes.plot(self.loss_record, "-")
         axes.set_title(
-            f"Learning rate: {self.cfg.models.hyperparameters.learning_rate}"
+            f"Initial learning rate: {self.cfg.models.hyperparameters.learning_rate}"
         )
         axes.set_ylabel("loss")
-        axes.set_xlabel("epoch")
+        axes.set_xlabel("epoch-1")
         fig.tight_layout()
         plt.savefig(os.path.join(self.output_dir, f"final_result_loss.png"))
         plt.close()
