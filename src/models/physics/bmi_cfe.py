@@ -402,6 +402,7 @@ class BMI_CFE:
         self.Schaake_adjusted_magic_constant_by_soil_type = (
             self.refkdt * self.satdk / 2.0e-06
         )
+        # print(self.refkdt.grad)
         self.Schaake_output_runoff_m = torch.zeros(
             (1, self.num_basins), dtype=torch.float64
         )
@@ -433,6 +434,7 @@ class BMI_CFE:
         self.soil_reservoir["coeff_primary"] = (
             self.satdk * self.soil_params["slop"] * self.time_step_size
         )
+
         if self.verbose:
             print(
                 f"refkdt: {self.refkdt:.2f}; satdk: {self.satdk:.5f}; \
@@ -736,8 +738,7 @@ class BMI_CFE:
 
     def return_storage_states(self):
         return torch.cat(
-            (self.gw_reservoir["storage_m"],
-            self.soil_reservoir["storage_m"]), dim=0
+            (self.gw_reservoir["storage_m"], self.soil_reservoir["storage_m"]), dim=0
         )
 
     # -------------------------------------------------------------------

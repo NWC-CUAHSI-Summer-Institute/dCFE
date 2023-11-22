@@ -48,11 +48,11 @@ class dCFE(nn.Module):
         self.normalized_c = normalization(Data.c)
         self.MLP = MLP(self.cfg, Data)
 
-        # Instantiate the parameters you want to learn
-        self.refkdt = torch.zeros([self.normalized_c.shape[0]])
-        self.satdk = torch.zeros([self.normalized_c.shape[0]])
+        self.data = Data
 
         # Initialize the CFE model
+        self.refkdt = torch.zeros([self.normalized_c.shape[0]])
+        self.satdk = torch.zeros([self.normalized_c.shape[0]])
         self.cfe_instance = BMI_CFE(
             refkdt=self.refkdt,
             satdk=self.satdk,
@@ -60,6 +60,14 @@ class dCFE(nn.Module):
             cfe_params=Data.params,
         )
         self.cfe_instance.initialize()
+
+        ## Set initial paramesters for the prediction of 1st epoch
+        self.refkdt = (
+            torch.ones(self.data.c.shape[:-1]) * self.cfg.models.initial_params.refkdt
+        )
+        self.satdk = (
+            torch.ones(self.data.c.shape[:-1]) * self.cfg.models.initial_params.satdk
+        )
 
     def initialize(self):
         # Initialize the CFE model with the dynamic parameter
@@ -120,6 +128,23 @@ class dCFE(nn.Module):
         """
         A function to run MLP(). It sets the parameter values used within MC
         """
-        normalized_states = normalization(states)
+
+        # Normalize states
+        normalized_states = torch.zeros_like(states)
+
+        # Normalize soil reservoir
+        normalized_states[:, :, 0] = states[
+            :, :, 0
+        ] / self.cfe_instance.max_gw_storage.detach().transpose(dim0=0, dim1=1)
+
+        # Normalize groundwater reservoir
+        normalized_states[:, :, 1] = states[:, :, 1] / (
+            self.cfe_instance.soil_params["D"].detach()
+            * self.cfe_instance.soil_params["smcmax"].detach()
+        ).transpose(dim0=0, dim1=1)
+
+        # Concatinate with other attributes
         c = torch.cat((self.normalized_c, normalized_states), dim=2)
+
+        # Run MLP
         self.refkdt, self.satdk = self.MLP(c)
