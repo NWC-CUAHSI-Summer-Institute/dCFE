@@ -24,7 +24,7 @@ class MLP(nn.Module):
         super().__init__()
         """
         The Multilayer Perceptron Model (MLP) which learns values
-        of refkdt and satdk from downstream discharge
+        of Cgw and satdk from downstream discharge
 
         args:
         - cfg: The DictConfig object that houses global variables
@@ -76,8 +76,6 @@ class MLP(nn.Module):
 
         # transforming the outputs of the NN into parameter space
         # (num_basin, timestep)
-        refkdt = to_physical(
-            x=x_transpose[:, :, 0], param="refkdt", cfg=self.cfg.models
-        )
+        Cgw = to_physical(x=x_transpose[:, :, 0], param="Cgw", cfg=self.cfg.models)
         satdk = to_physical(x=x_transpose[:, :, 1], param="satdk", cfg=self.cfg.models)
-        return refkdt, satdk
+        return Cgw, satdk

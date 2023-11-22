@@ -51,10 +51,10 @@ class dCFE(nn.Module):
         self.data = Data
 
         # Initialize the CFE model
-        self.refkdt = torch.zeros([self.normalized_c.shape[0]])
+        self.Cgw = torch.zeros([self.normalized_c.shape[0]])
         self.satdk = torch.zeros([self.normalized_c.shape[0]])
         self.cfe_instance = BMI_CFE(
-            refkdt=self.refkdt,
+            Cgw=self.Cgw,
             satdk=self.satdk,
             cfg=self.cfg,
             cfe_params=Data.params,
@@ -62,8 +62,8 @@ class dCFE(nn.Module):
         self.cfe_instance.initialize()
 
         ## Set initial paramesters for the prediction of 1st epoch
-        self.refkdt = (
-            torch.ones(self.data.c.shape[:-1]) * self.cfg.models.initial_params.refkdt
+        self.Cgw = (
+            torch.ones(self.data.c.shape[:-1]) * self.cfg.models.initial_params.Cgw
         )
         self.satdk = (
             torch.ones(self.data.c.shape[:-1]) * self.cfg.models.initial_params.satdk
@@ -81,10 +81,10 @@ class dCFE(nn.Module):
         self.cfe_instance.reset_volume_tracking()
 
         # Update parameters
-        self.cfe_instance.update_params(self.refkdt[:, 0], self.satdk[:, 0])
+        self.cfe_instance.update_params(self.Cgw[:, 0], self.satdk[:, 0])
 
     def reset_instance_attributes(self):
-        self.cfe_instance.refkdt = torch.zeros_like(self.cfe_instance.refkdt)
+        self.cfe_instance.Cgw = torch.zeros_like(self.cfe_instance.Cgw)
         self.cfe_instance.satdk = torch.zeros_like(self.cfe_instance.satdk)
 
     def forward(self, x, t):  # -> (Tensor, Tensor):
@@ -105,9 +105,9 @@ class dCFE(nn.Module):
         self.cfe_instance.set_value("water_potential_evaporation_flux", pet)
 
         # Update dynamic parameters in CFE
-        self.cfe_instance.update_params(self.refkdt[:, t], self.satdk[:, t])
+        self.cfe_instance.update_params(self.Cgw[:, t], self.satdk[:, t])
 
-        # Run the model with the NN-trained parameters (refkdt and satdk)
+        # Run the model with the NN-trained parameters (Cgw and satdk)
         self.cfe_instance.update()
 
         # Get the runoff output
@@ -121,7 +121,7 @@ class dCFE(nn.Module):
         self.cfe_instance.finalize(print_mass_balance=True)
 
     def print(self):
-        log.info(f"refkdt at timestep 0: {self.refkdt.tolist()[0][0]:.6f}")
+        log.info(f"Cgw at timestep 0: {self.Cgw.tolist()[0][0]:.6f}")
         log.info(f"satdk at timestep 0: {self.satdk.tolist()[0][0]:.6f}")
 
     def mlp_forward(self, states) -> None:
@@ -147,4 +147,4 @@ class dCFE(nn.Module):
         c = torch.cat((self.normalized_c, normalized_states), dim=2)
 
         # Run MLP
-        self.refkdt, self.satdk = self.MLP(c)
+        self.Cgw, self.satdk = self.MLP(c)

@@ -590,7 +590,7 @@ class CFE:
             / gw_reservoir["storage_max_m"]
         ) - torch.ones((1, cfe_state.num_basins), dtype=torch.float64)
         cfe_state.primary_flux_from_gw_m = torch.minimum(
-            gw_reservoir["coeff_primary"] * flux_exponential, gw_reservoir["storage_m"]
+            cfe_state.Cgw * flux_exponential, gw_reservoir["storage_m"]
         )
 
         cfe_state.secondary_flux_from_gw_m = torch.zeros(

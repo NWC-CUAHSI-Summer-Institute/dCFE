@@ -13,7 +13,7 @@ from typing import (
 )
 from torch.nn import ParameterList, ParameterDict, Parameter
 from datetime import datetime
-from models.fao_pet import FAO_PET
+from models.physics.fao_pet import FAO_PET
 import json
 
 log = logging.getLogger("data.Data")
@@ -256,7 +256,7 @@ class Data(Dataset):
             "wltsmc",
             "max_gw_storage",
             "expon",
-            "Cgw",
+            "refkdt",
             "K_lf",
             "K_nash",
             "nash_storage",

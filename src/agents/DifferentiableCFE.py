@@ -143,7 +143,7 @@ class DifferentiableCFE(BaseAgent):
         self.model.cfe_instance.reset_volume_tracking()
 
         # Reset the model states and parameters according to predicted parameters
-        # refkdt and satdk gets updated in the model as well
+        # Cgw and satdk gets updated in the model as well
         self.model.mlp_forward(self.states)
         self.model.initialize()
 
@@ -313,7 +313,7 @@ class DifferentiableCFE(BaseAgent):
     def save_result(self, y_hat, y_t, out_filename, plot_figure=False):
         # Save all basin runs
 
-        refkdt_ = self.model.refkdt.detach().numpy()
+        Cgw = self.model.Cgw.detach().numpy()
         satdk_ = self.model.satdk.detach().numpy()
 
         warmup = self.cfg.models.hyperparameters.warmup
@@ -322,7 +322,7 @@ class DifferentiableCFE(BaseAgent):
             # Save the timeseries of runoff and the best dynamic parametersers
 
             data = {
-                "refkdt": refkdt_[i, warmup:],
+                "Cgw": Cgw[i, warmup:],
                 "satdk": satdk_[i, warmup:],
                 "y_hat": y_hat[i, warmup:].squeeze(),
                 "y_t": y_t[i, warmup:].squeeze(),
