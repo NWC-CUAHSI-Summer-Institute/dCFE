@@ -65,13 +65,7 @@ class SyntheticAgent(BaseAgent):
 
     def run(self):
         # Reset the model states and parameters
-        # refkdt and satdk gets updated in the model as well
-        # Initialize in dCFE?
-        # self.model.cfe_instance.refkdt = self.model.refkdt  # .squeeze(dim=0)
-        # self.model.cfe_instance.satdk = self.model.satdk  # .squeeze(dim=0)
-        # self.model.cfe_instance.reset_flux_and_states()
         try:
-            n = self.data.n_timesteps
             y_hat = torch.zeros_like(self.data.y, device=self.cfg.device)  # runoff
             outputs = self.model.cfe_instance.get_output_var_names()
             output_lists = {output: [] for output in outputs}
@@ -90,8 +84,6 @@ class SyntheticAgent(BaseAgent):
             self.save_data(y_hat)
             self.save_config()
             self.save_other_fluxes(output_lists)
-            # self.save_params(["refkdt", "satdk"])
-            # self.model.print()
 
         except KeyboardInterrupt:
             interrupt = True

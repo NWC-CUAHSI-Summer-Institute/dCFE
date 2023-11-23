@@ -1,9 +1,9 @@
 hyperparameters:
-  epochs: 50 #1000 #50
-  learning_rate: 1e-03 #0.1 # 0.001
-  warmup: 500
+  epochs: 2 #1000 #50
+  learning_rate: 1 #0.1 # 0.001
+  warmup: 2000
   step_size: 1
-  gamma: 0.8
+  gamma: 0.7
 
 mlp:
   hidden_size: 6
@@ -14,9 +14,13 @@ mlp:
   num_states: 2
 
 transformation:
-  refkdt: # refkdt range taking from https://www.sciencedirect.com/science/article/pii/S0022169420303620
-  - 0.5
-  - 5
+  Cgw: 
+  - 1.8e-6
+  - 1.8e-3
   satdk:
   - 0
-  - 0.000726
+  - 7.26e-04
+
+initial_params:
+  Cgw: 3
+  satdk: 1.0e-03

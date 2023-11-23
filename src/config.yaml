@@ -20,8 +20,8 @@ synthetic:
   output_dir: ${cwd}\data\synthetic_case\
   param_nams: ${basin_id}_synthetic_params_${soil_scheme}
   nams: synthetic_${soil_scheme}.csv
-  refkdt: 3
-  satdk: 0.00001
+  Cgw: 1.0e-05
+  satdk: 1.0e-04
 
 conversions:
   cm_to_mm: 10.0

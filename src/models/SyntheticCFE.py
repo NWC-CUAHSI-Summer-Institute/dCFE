@@ -38,7 +38,7 @@ class SyntheticCFE(nn.Module):
 
         # Instantiate the params you want to initialize with
         num_basins = len(self.cfg.data.basin_ids)
-        self.refkdt = self.cfg.synthetic.refkdt * torch.ones((num_basins))
+        self.Cgw = self.cfg.synthetic.Cgw * torch.ones((num_basins))
         self.satdk = self.cfg.synthetic.satdk * torch.ones((num_basins))
 
         # Initializing Values
@@ -47,7 +47,7 @@ class SyntheticCFE(nn.Module):
         # def cfe_initialize(self):
         # Initialize the model
         self.cfe_instance = BMI_CFE(
-            refkdt=self.refkdt, satdk=self.satdk, cfg=self.cfg, cfe_params=Data.params
+            Cgw=self.Cgw, satdk=self.satdk, cfg=self.cfg, cfe_params=Data.params
         )
 
         self.cfe_instance.initialize()

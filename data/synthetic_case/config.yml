@@ -10,8 +10,8 @@ synthetic:
   output_dir: ${cwd}\data\synthetic_case\
   param_nams: ${basin_id}_synthetic_params_${soil_scheme}
   nams: synthetic_${soil_scheme}.csv
-  refkdt: 3
-  satdk: 1.0e-05
+  Cgw: 1.0e-05
+  satdk: 0.0001
 conversions:
   cm_to_mm: 10.0
   mm_to_cm: 0.1
@@ -34,11 +34,11 @@ data:
   json_params_dir: ${data.data_dir}\cat_{}_bmi_config_cfe.json
   partition_scheme: Schaake
   start_time: '2010-10-01 00:00:00'
-  end_time: '2015-09-30 23:00:00'
+  end_time: '2011-09-30 23:00:00'
 models:
   hyperparameters:
-    epochs: 3
-    learning_rate: 0.001
+    epochs: 2
+    learning_rate: 1
     warmup: 500
     step_size: 1
     gamma: 0.7
@@ -48,9 +48,12 @@ models:
     num_params: 2
     num_states: 2
   transformation:
-    refkdt:
-    - 0.5
-    - 5
+    Cgw:
+    - 1.8e-06
+    - 0.0018
     satdk:
     - 0
     - 0.000726
+  initial_params:
+    Cgw: 3
+    satdk: 0.001

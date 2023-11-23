@@ -13,7 +13,7 @@ from typing import (
 )
 from torch.nn import ParameterList, ParameterDict, Parameter
 from datetime import datetime
-from models.fao_pet import FAO_PET
+from models.physics.fao_pet import FAO_PET
 import json
 
 log = logging.getLogger("data.Data")
@@ -151,9 +151,13 @@ class Data(Dataset):
         )
 
     def get_forcing_as_attributes(self, cfg: DictConfig):
+        # [:, :, 0] Precip [:, :, 1] PET and [:, :, 3] Tair
         output_tensor = torch.zeros(
             [self.num_basins, self.n_timesteps, self.cfg.models.mlp.num_attrs]
         )
+
+        # The first two attributes will be [0] precipitation and [1] PET
+        output_tensor[:, :, :-1] = self.x
 
         # Read forcing data into pandas dataframe
         for i, basin_id in tqdm(enumerate(self.basin_ids), desc="Reading forcing data"):
@@ -161,27 +165,15 @@ class Data(Dataset):
             forcing_df_.set_index(pd.to_datetime(forcing_df_["date"]), inplace=True)
             forcing_df = forcing_df_[self.start_time : self.end_time].copy()
 
-            # # Convert pandas dataframe to PyTorch tensors
-            # Convert units
-            # (precip/1000)   # kg/m2/h = mm/h -> m/h
-            # (pet/1000/3600) # kg/m2/h = mm/h -> m/s
-
-            precip = torch.tensor(
-                forcing_df["total_precipitation"].values / cfg.conversions.m_to_mm,
-                device=cfg.device,
-            )
-            _pet = FAO_PET(
-                cfg=self.cfg, nldas_forcing=forcing_df, basin_id=basin_id
-            ).calc_PET()
-            pet = torch.tensor(_pet.values, device=cfg.device)
             Tair = torch.tensor(
                 forcing_df["temperature"].values,
                 device=cfg.device,
             )
 
-            c_ = torch.stack([precip, pet, Tair])  # Index 0: Precip, index 1: PET
-            c_tr = c_.transpose(0, 1)
-            output_tensor[i] = c_tr
+            # The third attributes is [2] Tair
+            # c = Tair
+            # c_tr = c_.transpose(0, 1) No need now because it is only one attribute
+            output_tensor[i, :, -1] = Tair
 
         return output_tensor
 
@@ -264,7 +256,7 @@ class Data(Dataset):
             "wltsmc",
             "max_gw_storage",
             "expon",
-            "Cgw",
+            "refkdt",
             "K_lf",
             "K_nash",
             "nash_storage",

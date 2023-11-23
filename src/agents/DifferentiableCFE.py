@@ -120,6 +120,10 @@ class DifferentiableCFE(BaseAgent):
         # Create the DDP object with the GLOO backend
         # self.net = DDP(self.model.to(self.cfg.device), device_ids=None)
 
+        # Run process model once to get the internal states
+        self.model.initialize()
+        self.run_process_model()
+
         for epoch in range(1, self.cfg.models.hyperparameters.epochs + 1):
             log.info(f"Epoch #: {epoch}/{self.cfg.models.hyperparameters.epochs}")
             self.loss_record[epoch - 1] = self.train_one_epoch()
@@ -138,23 +142,13 @@ class DifferentiableCFE(BaseAgent):
         self.optimizer.zero_grad()
         self.model.cfe_instance.reset_volume_tracking()
 
-        # Reset the model states and parameters
-        # refkdt and satdk gets updated in the model as well
+        # Reset the model states and parameters according to predicted parameters
+        # Cgw and satdk gets updated in the model as well
         self.model.mlp_forward(self.states)
         self.model.initialize()
 
-        y_hat = torch.empty(
-            [self.data.num_basins, self.data.n_timesteps], device=self.cfg.device
-        )
-        y_hat.fill_(float("nan"))
-
-        # y_hat = torch.zeros(n, device=self.cfg.device)  # runoff
-
-        for t, (x, y_t) in enumerate(tqdm(self.data_loader, desc="Processing data")):
-            runoff, cfe_states = self.model(x, t)  #
-            y_hat[:, t] = runoff
-            # TODO: check this detach() is okay. Currently normalization function does not handle gradient-attached tensor
-            self.states[:, t, :] = cfe_states.detach()
+        # Run process model
+        y_hat = self.run_process_model()
 
         # Run the following to get a visual image of tesnors
         #######
@@ -163,18 +157,25 @@ class DifferentiableCFE(BaseAgent):
         # a.render("backward_computation_graph")
         #######
 
+        # Calculate the loss
         loss = self.validate(y_hat, self.data.y)
 
         return loss
 
-        # From https://github.com/mhpi/differentiable_routing/blob/26dd83852a6ee4094bd9821b2461a7f528efea96/src/agents/graph_network.py
-        #######
-        # with open(
-        #     f"{self.PATH}GNN_output_steps-{config['time']['steps']}_{self.save_name}_{self.rank}_epoch-{self.current_epoch}.npy",
-        #     "wb",
-        # ) as f:
-        #     np.save(f, y_hat.detach().numpy())
-        #######
+    def run_process_model(self):
+        # initialize
+        y_hat = torch.empty(
+            [self.data.num_basins, self.data.n_timesteps], device=self.cfg.device
+        )
+        y_hat.fill_(float("nan"))
+
+        # Run CFE at each timestep
+        for t, (x, y_t) in enumerate(tqdm(self.data_loader, desc="Processing data")):
+            runoff, cfe_states = self.model(x, t)
+            y_hat[:, t] = runoff
+            self.states[:, t, :] = cfe_states.detach()
+
+        return y_hat
 
     def validate(self, y_hat_: Tensor, y_t_: Tensor) -> None:
         """
@@ -254,15 +255,9 @@ class DifferentiableCFE(BaseAgent):
             # Get the final training
             self.model.cfe_instance.reset_volume_tracking()
             self.model.cfe_instance.reset_flux_and_states()
-            n = self.data.n_timesteps
-            y_hat = torch.zeros_like(self.data.y, device=self.cfg.device)
 
             # Run one last time
-            for t, (x, y_t) in enumerate(
-                tqdm(self.data_loader, desc="Processing data")
-            ):
-                runoff, _ = self.model(x, t)  #
-                y_hat[:, t] = runoff.transpose(dim0=0, dim1=1)
+            y_hat = self.run_process_model()
 
             y_hat_ = y_hat.detach().numpy()
             y_t_ = self.data.y.detach().numpy()
@@ -318,7 +313,7 @@ class DifferentiableCFE(BaseAgent):
     def save_result(self, y_hat, y_t, out_filename, plot_figure=False):
         # Save all basin runs
 
-        refkdt_ = self.model.refkdt.detach().numpy()
+        Cgw = self.model.Cgw.detach().numpy()
         satdk_ = self.model.satdk.detach().numpy()
 
         warmup = self.cfg.models.hyperparameters.warmup
@@ -327,7 +322,7 @@ class DifferentiableCFE(BaseAgent):
             # Save the timeseries of runoff and the best dynamic parametersers
 
             data = {
-                "refkdt": refkdt_[i, warmup:],
+                "Cgw": Cgw[i, warmup:],
                 "satdk": satdk_[i, warmup:],
                 "y_hat": y_hat[i, warmup:].squeeze(),
                 "y_t": y_t[i, warmup:].squeeze(),

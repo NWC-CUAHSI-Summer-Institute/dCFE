@@ -11,7 +11,7 @@ torch.set_default_dtype(torch.float64)
 
 class BMI_CFE:
     def __init__(
-        self, refkdt: Tensor, satdk: Tensor, cfg=None, cfe_params=None, verbose=False
+        self, Cgw: Tensor, satdk: Tensor, cfg=None, cfe_params=None, verbose=False
     ):
         # ________________________________________________
         # Create a Bmi CFE model that is ready for initialization
@@ -89,7 +89,7 @@ class BMI_CFE:
         self.cfg = cfg
 
         # NN params
-        self.refkdt = refkdt.unsqueeze(dim=0)
+        self.Cgw = Cgw.unsqueeze(dim=0)
         self.satdk = satdk.unsqueeze(dim=0)
 
         # This takes in the cfg read with Hydra from the yml file
@@ -128,7 +128,7 @@ class BMI_CFE:
         # GW paramters
         self.max_gw_storage = self.cfe_params["max_gw_storage"]
         self.expon = self.cfe_params["expon"]
-        self.Cgw = self.cfe_params["Cgw"]
+        # self.Cgw = self.cfe_params["Cgw"] -> this has been changed to dynamic parameter
 
         # Nash storage
         self.K_nash = self.cfe_params["K_nash"]
@@ -138,6 +138,7 @@ class BMI_CFE:
         self.K_lf = self.cfe_params["K_lf"]
 
         # Surface runoff
+        self.refkdt = self.cfe_params["refkdt"]
         self.giuh_ordinates = self.cfe_params["giuh_ordinates"].view(
             self.num_basins, -1
         )
@@ -358,7 +359,7 @@ class BMI_CFE:
         self.gw_reservoir = {
             "is_exponential": True,
             "storage_max_m": self.max_gw_storage,
-            "coeff_primary": self.Cgw,
+            # "coeff_primary": self.Cgw, -> this has been changed to dynamic parameter
             "exponent_primary": self.expon,
             "storage_threshold_primary_m": torch.zeros(
                 (1, self.num_basins), dtype=torch.float64
@@ -402,6 +403,7 @@ class BMI_CFE:
         self.Schaake_adjusted_magic_constant_by_soil_type = (
             self.refkdt * self.satdk / 2.0e-06
         )
+        # print(self.refkdt.grad)
         self.Schaake_output_runoff_m = torch.zeros(
             (1, self.num_basins), dtype=torch.float64
         )
@@ -423,19 +425,25 @@ class BMI_CFE:
         self.flux_giuh_runoff_m = torch.zeros((1, self.num_basins), dtype=torch.float64)
         self.flux_Qout_m = torch.zeros((1, self.num_basins), dtype=torch.float64)
 
-    def update_params(self, refkdt, satdk):
+    def update_params(self, Cgw, satdk):
         """Update dynamic parameters"""
-        self.refkdt = refkdt.unsqueeze(dim=0)
+        self.Cgw = Cgw.unsqueeze(dim=0)
         self.satdk = satdk.unsqueeze(dim=0)
+
+        # Update parameters related to Cgw
+        # None
+
+        # Update parameters related to satdk
         self.Schaake_adjusted_magic_constant_by_soil_type = (
             self.refkdt * self.satdk / 2.0e-06
         )
         self.soil_reservoir["coeff_primary"] = (
             self.satdk * self.soil_params["slop"] * self.time_step_size
         )
+
         if self.verbose:
             print(
-                f"refkdt: {self.refkdt:.2f}; satdk: {self.satdk:.5f}; \
+                f"Cgw: {self.Cgw:.2f}; satdk: {self.satdk:.5f}; \
                 Schaake: {self.Schaake_adjusted_magic_constant_by_soil_type:.3f};\
                 Soilcoeff: {self.soil_reservoir['coeff_primary']:.5f}"
             )
@@ -736,8 +744,7 @@ class BMI_CFE:
 
     def return_storage_states(self):
         return torch.cat(
-            (self.gw_reservoir["storage_m"],
-            self.soil_reservoir["storage_m"]), dim=0
+            (self.gw_reservoir["storage_m"], self.soil_reservoir["storage_m"]), dim=0
         )
 
     # -------------------------------------------------------------------
