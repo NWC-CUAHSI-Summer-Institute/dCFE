@@ -50,24 +50,26 @@ class dCFE(nn.Module):
 
         self.data = Data
 
+        self.Cgw = torch.zeros(self.data.c.shape[:-1])
+        self.satdk = torch.zeros(self.data.c.shape[:-1])
+
         # Initialize the CFE model
-        self.Cgw = torch.zeros([self.normalized_c.shape[0]])
-        self.satdk = torch.zeros([self.normalized_c.shape[0]])
+        self.ini_Cgw = (
+            torch.ones(1, self.data.num_basins) * self.cfg.models.initial_params.Cgw
+        )
+        self.ini_satdk = (
+            torch.ones(1, self.data.num_basins) * self.cfg.models.initial_params.satdk
+        )
         self.cfe_instance = BMI_CFE(
-            Cgw=self.Cgw,
-            satdk=self.satdk,
+            Cgw=self.ini_Cgw,
+            satdk=self.ini_satdk,
             cfg=self.cfg,
-            cfe_params=Data.params,
+            cfe_params=self.data.params,
         )
         self.cfe_instance.initialize()
 
-        ## Set initial paramesters for the prediction of 1st epoch
-        self.Cgw = (
-            torch.ones(self.data.c.shape[:-1]) * self.cfg.models.initial_params.Cgw
-        )
-        self.satdk = (
-            torch.ones(self.data.c.shape[:-1]) * self.cfg.models.initial_params.satdk
-        )
+        self.Cgw[:, 0] = self.ini_Cgw
+        self.satdk[:, 0] = self.ini_satdk
 
     def initialize(self):
         # Initialize the CFE model with the dynamic parameter
@@ -79,13 +81,11 @@ class dCFE(nn.Module):
         self.cfe_instance.load_cfe_params()
         self.cfe_instance.reset_flux_and_states()
         self.cfe_instance.reset_volume_tracking()
-
-        # Update parameters
-        self.cfe_instance.update_params(self.Cgw[:, 0], self.satdk[:, 0])
+        self.cfe_instance.remove_grad()
 
     def reset_instance_attributes(self):
-        self.cfe_instance.Cgw = torch.zeros_like(self.cfe_instance.Cgw)
-        self.cfe_instance.satdk = torch.zeros_like(self.cfe_instance.satdk)
+        self.cfe_instance.Cgw = self.ini_Cgw.detach()
+        self.cfe_instance.satdk = self.ini_satdk.detach()
 
     def forward(self, x, t):  # -> (Tensor, Tensor):
         """
@@ -105,7 +105,7 @@ class dCFE(nn.Module):
         self.cfe_instance.set_value("water_potential_evaporation_flux", pet)
 
         # Update dynamic parameters in CFE
-        self.cfe_instance.update_params(self.Cgw[:, t], self.satdk[:, t])
+        self.update_params(t)
 
         # Run the model with the NN-trained parameters (Cgw and satdk)
         self.cfe_instance.update()
@@ -117,6 +117,9 @@ class dCFE(nn.Module):
         )
         return self.runoff, storage_states
 
+    def update_params(self, t):
+        self.cfe_instance.update_params(self.Cgw[:, t], self.satdk[:, t])
+
     def finalize(self):
         self.cfe_instance.finalize(print_mass_balance=True)
 
@@ -124,10 +127,12 @@ class dCFE(nn.Module):
         log.info(f"Cgw at timestep 0: {self.Cgw.tolist()[0][0]:.6f}")
         log.info(f"satdk at timestep 0: {self.satdk.tolist()[0][0]:.6f}")
 
-    def mlp_forward(self, states) -> None:
+    def mlp_forward(self, states, t) -> None:
         """
         A function to run MLP(). It sets the parameter values used within MC
         """
+
+        lag_hrs = self.cfg.models.mlp.lag_hrs
 
         # Normalize states
         normalized_states = torch.zeros_like(states)
@@ -144,7 +149,24 @@ class dCFE(nn.Module):
         ).transpose(dim0=0, dim1=1)
 
         # Concatinate with other attributes
-        c = torch.cat((self.normalized_c, normalized_states), dim=2)
+        if t < lag_hrs:
+            # when t is up to the lag ours, just repeat the c[t] for lag_hr times as input
+            c = torch.cat(
+                (
+                    self.normalized_c[:, t, :].unsqueeze(dim=1).repeat(1, lag_hrs, 1),
+                    normalized_states[:, t, :].unsqueeze(dim=1).repeat(1, lag_hrs, 1),
+                ),
+                dim=2,
+            )
+        else:
+            # when t exceed the lag ours, take the c[t-lag_hr,t] as input
+            c = torch.cat(
+                (
+                    self.normalized_c[:, (t - lag_hrs) : t, :],
+                    normalized_states[:, t, :].unsqueeze(dim=1).repeat(1, lag_hrs, 1),
+                ),
+                dim=2,
+            )
 
         # Run MLP
-        self.Cgw, self.satdk = self.MLP(c)
+        self.Cgw[:, t], self.satdk[:, t] = self.MLP(c)

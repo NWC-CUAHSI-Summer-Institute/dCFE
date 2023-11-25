@@ -654,6 +654,10 @@ class BMI_CFE:
         return
 
     # ________________________________________________________
+    def remove_grad(self):
+        self.output_factor_cms = self.output_factor_cms.detach()
+
+    # ________________________________________________________
     def load_forcing_file(self):
         self.forcing_data = pd.read_csv(self.forcing_file)
 
