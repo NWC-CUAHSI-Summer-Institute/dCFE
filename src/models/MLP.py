@@ -54,8 +54,6 @@ class MLP(nn.Module):
         # Defining the layers using nn.Sequential
         self.network = nn.Sequential(
             Linear(input_size, hidden_size),
-            Linear(hidden_size, hidden_size),
-            Linear(hidden_size, hidden_size),
             Linear(hidden_size, output_size),
             Sigmoid(),
         )

@@ -164,3 +164,11 @@ class dCFE(nn.Module):
         _Cgw, _satdk = self.MLP(c)
         self.Cgw = _Cgw.clone()
         self.satdk = _satdk.clone()
+
+
+# Try 2000 epochs
+# Plot 10 different timesteps agianst synthetic
+
+# Reason of not learning
+# - Vashishing gradient
+# -

@@ -1,15 +1,13 @@
 hyperparameters:
-  epochs: 10 #1000 #50
-  learning_rate: 1 #0.1 # 0.001
+  epochs: 5 #1000 #50
+  learning_rate: 1.0e-3 #0.1 # 0.001
   warmup: 2000
   step_size: 1
-  gamma: 0.7
+  gamma: 0.92
 
 mlp:
-  hidden_size: 6
-  # input_size: 2
+  hidden_size: 126
   num_attrs: 3
-  # output_size: 2
   num_params: 2
   num_states: 2
   lag_hrs: 24
@@ -24,4 +22,4 @@ transformation:
 
 initial_params:
   Cgw: 2.55e-04
-  satdk: 1.82e-08
+  satdk: 1.82e-02
