@@ -51,41 +51,32 @@ class dCFE(nn.Module):
         self.data = Data
 
         # Initialize the CFE model
-        self.Cgw = torch.zeros([self.normalized_c.shape[0]])
-        self.satdk = torch.zeros([self.normalized_c.shape[0]])
+        self.Cgw = torch.ones(self.data.num_basins) * self.cfg.models.initial_params.Cgw
+        self.satdk = (
+            torch.ones(self.data.num_basins) * self.cfg.models.initial_params.satdk
+        )
         self.cfe_instance = BMI_CFE(
             Cgw=self.Cgw,
             satdk=self.satdk,
             cfg=self.cfg,
-            cfe_params=Data.params,
+            cfe_params=self.data.params,
         )
         self.cfe_instance.initialize()
 
-        ## Set initial paramesters for the prediction of 1st epoch
-        self.Cgw = (
-            torch.ones(self.data.c.shape[:-1]) * self.cfg.models.initial_params.Cgw
-        )
-        self.satdk = (
-            torch.ones(self.data.c.shape[:-1]) * self.cfg.models.initial_params.satdk
-        )
-
     def initialize(self):
         # Initialize the CFE model with the dynamic parameter
-
-        # Reset dCFE attributes
         self.reset_instance_attributes()
 
         # Reset CFE parameters, states, fluxes, and volume tracking
         self.cfe_instance.load_cfe_params()
         self.cfe_instance.reset_flux_and_states()
         self.cfe_instance.reset_volume_tracking()
-
-        # Update parameters
-        self.cfe_instance.update_params(self.Cgw[:, 0], self.satdk[:, 0])
+        self.cfe_instance.reset_internal_attributes()
 
     def reset_instance_attributes(self):
-        self.cfe_instance.Cgw = torch.zeros_like(self.cfe_instance.Cgw)
-        self.cfe_instance.satdk = torch.zeros_like(self.cfe_instance.satdk)
+        self.cfe_instance.Cgw = self.Cgw.detach()
+        self.cfe_instance.satdk = self.satdk.detach()
+        self.normalized_c = self.normalized_c.detach()
 
     def forward(self, x, t):  # -> (Tensor, Tensor):
         """
@@ -105,46 +96,79 @@ class dCFE(nn.Module):
         self.cfe_instance.set_value("water_potential_evaporation_flux", pet)
 
         # Update dynamic parameters in CFE
-        self.cfe_instance.update_params(self.Cgw[:, t], self.satdk[:, t])
+        self.update_params()
 
         # Run the model with the NN-trained parameters (Cgw and satdk)
         self.cfe_instance.update()
 
         # Get the runoff output
-        self.runoff = self.cfe_instance.return_runoff() * self.cfg.conversions.m_to_mm
-        storage_states = self.cfe_instance.return_storage_states().transpose(
-            dim0=0, dim1=1
-        )
-        return self.runoff, storage_states
+        runoff = self.cfe_instance.return_runoff() * self.cfg.conversions.m_to_mm
+
+        return runoff
+
+    def update_params(self):
+        self.cfe_instance.update_params(self.Cgw, self.satdk)
 
     def finalize(self):
         self.cfe_instance.finalize(print_mass_balance=True)
 
     def print(self):
-        log.info(f"Cgw at timestep 0: {self.Cgw.tolist()[0][0]:.6f}")
-        log.info(f"satdk at timestep 0: {self.satdk.tolist()[0][0]:.6f}")
+        None
+        # log.info(f"Cgw at timestep 0: {self.Cgw.tolist()[0][0]:.6f}")
+        # log.info(f"satdk at timestep 0: {self.satdk.tolist()[0][0]:.6f}")
 
-    def mlp_forward(self, states) -> None:
+    def mlp_forward(self, t) -> None:
         """
         A function to run MLP(). It sets the parameter values used within MC
         """
+
+        lag_hrs = self.cfg.models.mlp.lag_hrs
+
+        states = self.cfe_instance.return_storage_states().transpose(dim0=0, dim1=1)
 
         # Normalize states
         normalized_states = torch.zeros_like(states)
 
         # Normalize soil reservoir
-        normalized_states[:, :, 0] = states[
-            :, :, 0
-        ] / self.cfe_instance.max_gw_storage.detach().transpose(dim0=0, dim1=1)
+        normalized_states[:, 0] = (
+            states[:, 0] / self.cfe_instance.max_gw_storage.detach()
+        )
 
         # Normalize groundwater reservoir
-        normalized_states[:, :, 1] = states[:, :, 1] / (
+        normalized_states[:, 1] = states[:, 1] / (
             self.cfe_instance.soil_params["D"].detach()
             * self.cfe_instance.soil_params["smcmax"].detach()
-        ).transpose(dim0=0, dim1=1)
+        )
 
         # Concatinate with other attributes
-        c = torch.cat((self.normalized_c, normalized_states), dim=2)
+        if t < lag_hrs:
+            # when t is up to the lag ours, just repeat the c[t] for lag_hr times as input
+            c = torch.cat(
+                (
+                    self.normalized_c[:, t, :].unsqueeze(dim=1).repeat(1, lag_hrs, 1),
+                    normalized_states.unsqueeze(dim=1).repeat(1, lag_hrs, 1),
+                ),
+                dim=2,
+            )
+        else:
+            # when t exceed the lag ours, take the c[t-lag_hr,t] as input
+            c = torch.cat(
+                (
+                    self.normalized_c[:, (t - lag_hrs) : t, :],
+                    normalized_states.unsqueeze(dim=1).repeat(1, lag_hrs, 1),
+                ),
+                dim=2,
+            )
 
         # Run MLP
-        self.Cgw, self.satdk = self.MLP(c)
+        _Cgw, _satdk = self.MLP(c)
+        self.Cgw = _Cgw.clone()
+        self.satdk = _satdk.clone()
+
+
+# Try 2000 epochs
+# Plot 10 different timesteps agianst synthetic
+
+# Reason of not learning
+# - Vashishing gradient
+# -

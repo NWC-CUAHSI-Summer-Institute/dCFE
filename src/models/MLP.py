@@ -39,14 +39,14 @@ class MLP(nn.Module):
         torch.manual_seed(0)
         input_size = (
             Data.num_basins
-            * len(Data)
+            * self.cfg.models.mlp.lag_hrs
             * (self.cfg.models.mlp.num_attrs + self.cfg.models.mlp.num_states)
         )
         hidden_size = self.cfg.models.mlp.hidden_size
         output_size = (
-            Data.num_basins * len(Data) * self.cfg.models.mlp.num_params
+            Data.num_basins * self.cfg.models.mlp.num_params
         )  # self.cfg.models.mlp.output_size
-        output_shape = (self.cfg.models.mlp.num_params, len(Data), Data.num_basins)
+        output_shape = (self.cfg.models.mlp.num_params, Data.num_basins)
 
         self.m1 = Flatten(start_dim=0, end_dim=-1)
         self.m2 = Unflatten(dim=0, unflattened_size=output_shape)
@@ -54,8 +54,6 @@ class MLP(nn.Module):
         # Defining the layers using nn.Sequential
         self.network = nn.Sequential(
             Linear(input_size, hidden_size),
-            Linear(hidden_size, hidden_size),
-            Linear(hidden_size, hidden_size),
             Linear(hidden_size, output_size),
             Sigmoid(),
         )
@@ -76,6 +74,6 @@ class MLP(nn.Module):
 
         # transforming the outputs of the NN into parameter space
         # (num_basin, timestep)
-        Cgw = to_physical(x=x_transpose[:, :, 0], param="Cgw", cfg=self.cfg.models)
-        satdk = to_physical(x=x_transpose[:, :, 1], param="satdk", cfg=self.cfg.models)
+        Cgw = to_physical(x=x_transpose[:, 0], param="Cgw", cfg=self.cfg.models)
+        satdk = to_physical(x=x_transpose[:, 1], param="satdk", cfg=self.cfg.models)
         return Cgw, satdk

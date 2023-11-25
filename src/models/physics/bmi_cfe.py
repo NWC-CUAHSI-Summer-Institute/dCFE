@@ -89,8 +89,8 @@ class BMI_CFE:
         self.cfg = cfg
 
         # NN params
-        self.Cgw = Cgw.unsqueeze(dim=0)
-        self.satdk = satdk.unsqueeze(dim=0)
+        self.Cgw = Cgw  # .unsqueeze(dim=0)
+        self.satdk = satdk  # .unsqueeze(dim=0)
 
         # This takes in the cfg read with Hydra from the yml file
         # self.cfe_cfg = global_params
@@ -103,6 +103,32 @@ class BMI_CFE:
         # _________________________________________________
         # nn parameters
         # None
+
+    def reset_internal_attributes(self):
+        self.Schaake_adjusted_magic_constant_by_soil_type = (
+            self.Schaake_adjusted_magic_constant_by_soil_type.detach()
+        )
+        self.output_factor_cms = self.output_factor_cms.detach()
+
+        self.gw_reservoir["storage_m"] = self.gw_reservoir["storage_m"].detach()
+        self.gw_reservoir["storage_max_m"] = self.gw_reservoir["storage_max_m"].detach()
+
+        self.soil_reservoir["storage_m"] = self.soil_reservoir["storage_m"].detach()
+        self.soil_reservoir["wilting_point_m"] = self.soil_reservoir[
+            "wilting_point_m"
+        ].detach()
+        self.soil_reservoir["storage_max_m"] = self.soil_reservoir[
+            "storage_max_m"
+        ].detach()
+        self.soil_reservoir["coeff_primary"] = self.soil_reservoir[
+            "coeff_primary"
+        ].detach()
+        self.soil_reservoir["storage_threshold_primary_m"] = self.soil_reservoir[
+            "storage_threshold_primary_m"
+        ].detach()
+        self.soil_reservoir["storage_threshold_secondary_m"] = self.soil_reservoir[
+            "storage_threshold_secondary_m"
+        ].detach()
 
     def load_cfe_params(self):
         for param in self.cfe_params.values():

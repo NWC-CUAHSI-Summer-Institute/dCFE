@@ -45,6 +45,8 @@ class DifferentiableCFE(BaseAgent):
         super().__init__()
 
         self.cfg = cfg
+        self.output_dir = self.create_output_dir()
+
         # Setting the cfg object and manual seed for reproducibility
         torch.manual_seed(0)
         torch.set_default_dtype(torch.float64)
@@ -66,8 +68,6 @@ class DifferentiableCFE(BaseAgent):
         )
 
         self.current_epoch = 0
-
-        self.output_dir = self.create_output_dir()
 
         self.states = torch.zeros(
             [
@@ -121,15 +121,13 @@ class DifferentiableCFE(BaseAgent):
         # self.net = DDP(self.model.to(self.cfg.device), device_ids=None)
 
         # Run process model once to get the internal states
+        log.info("Initializing the model")
         self.model.initialize()
-        self.run_process_model()
+        self.run_model(run_mlp=False)
 
         for epoch in range(1, self.cfg.models.hyperparameters.epochs + 1):
             log.info(f"Epoch #: {epoch}/{self.cfg.models.hyperparameters.epochs}")
             self.loss_record[epoch - 1] = self.train_one_epoch()
-            # print("Start mlp forward")
-            # self.model.mlp_forward()
-            # print("End mlp forward")
             self.current_epoch += 1
 
     def train_one_epoch(self):
@@ -140,15 +138,11 @@ class DifferentiableCFE(BaseAgent):
 
         # Reset
         self.optimizer.zero_grad()
-        self.model.cfe_instance.reset_volume_tracking()
-
-        # Reset the model states and parameters according to predicted parameters
-        # Cgw and satdk gets updated in the model as well
-        self.model.mlp_forward(self.states)
+        # Reset the model states and parameters, and gradients
         self.model.initialize()
 
-        # Run process model
-        y_hat = self.run_process_model()
+        # Run model
+        y_hat = self.run_model(run_mlp=True)
 
         # Run the following to get a visual image of tesnors
         #######
@@ -162,7 +156,7 @@ class DifferentiableCFE(BaseAgent):
 
         return loss
 
-    def run_process_model(self):
+    def run_model(self, run_mlp=False):
         # initialize
         y_hat = torch.empty(
             [self.data.num_basins, self.data.n_timesteps], device=self.cfg.device
@@ -171,9 +165,10 @@ class DifferentiableCFE(BaseAgent):
 
         # Run CFE at each timestep
         for t, (x, y_t) in enumerate(tqdm(self.data_loader, desc="Processing data")):
-            runoff, cfe_states = self.model(x, t)
+            if run_mlp:
+                self.model.mlp_forward(t)  # Instead
+            runoff = self.model(x, t)
             y_hat[:, t] = runoff
-            self.states[:, t, :] = cfe_states.detach()
 
         return y_hat
 
@@ -233,9 +228,6 @@ class DifferentiableCFE(BaseAgent):
         log.debug(f"Back prop took : {(end - start):.6f} seconds")
         log.debug(f"Loss: {loss}")
 
-        # Save results
-        # TODO: add to save loss
-
         # Update the model parameters
         self.model.print()
         print("Start optimizer")
@@ -257,7 +249,7 @@ class DifferentiableCFE(BaseAgent):
             self.model.cfe_instance.reset_flux_and_states()
 
             # Run one last time
-            y_hat = self.run_process_model()
+            y_hat = self.run_model(run_mlp=False)
 
             y_hat_ = y_hat.detach().numpy()
             y_t_ = self.data.y.detach().numpy()
@@ -320,10 +312,10 @@ class DifferentiableCFE(BaseAgent):
 
         for i, basin_id in enumerate(self.data.basin_ids):
             # Save the timeseries of runoff and the best dynamic parametersers
-
+            # TODO: Save Cgw and satdk later
+            # "Cgw": Cgw[i, warmup:],
+            # "satdk": satdk_[i, warmup:],
             data = {
-                "Cgw": Cgw[i, warmup:],
-                "satdk": satdk_[i, warmup:],
                 "y_hat": y_hat[i, warmup:].squeeze(),
                 "y_t": y_t[i, warmup:].squeeze(),
             }

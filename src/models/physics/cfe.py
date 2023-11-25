@@ -330,7 +330,7 @@ class CFE:
             # Calculate the amount of overflow
             diff = (cfe_state.flux_perc_m - cfe_state.gw_reservoir_storage_deficit_m)[
                 overflow_mask
-            ]
+            ].clone()
 
             # Overflow goes to surface runoff
             cfe_state.surface_runoff_depth_m[overflow_mask] = (
@@ -345,7 +345,7 @@ class CFE:
             # Saturate the Groundwater storage
             cfe_state.gw_reservoir["storage_m"][overflow_mask] = cfe_state.gw_reservoir[
                 "storage_max_m"
-            ][overflow_mask]
+            ][overflow_mask].clone()
             cfe_state.gw_reservoir_storage_deficit_m[overflow_mask] = 0.0
 
             # Track volume
@@ -358,7 +358,7 @@ class CFE:
         if torch.any(no_overflow_mask):
             cfe_state.gw_reservoir["storage_m"][no_overflow_mask] = (
                 cfe_state.gw_reservoir["storage_m"][no_overflow_mask]
-                + cfe_state.flux_perc_m[no_overflow_mask]
+                + cfe_state.flux_perc_m[no_overflow_mask].clone()
             )
 
     # __________________________________________________________________________________________________________
@@ -372,7 +372,8 @@ class CFE:
 
     def track_volume_from_gw(self, cfe_state):
         cfe_state.gw_reservoir["storage_m"] = (
-            cfe_state.gw_reservoir["storage_m"] - cfe_state.flux_from_deep_gw_to_chan_m
+            cfe_state.gw_reservoir["storage_m"]
+            - cfe_state.flux_from_deep_gw_to_chan_m.clone()
         )
         # Mass balance
         cfe_state.vol_from_gw += cfe_state.flux_from_deep_gw_to_chan_m.detach()
@@ -591,7 +592,7 @@ class CFE:
         ) - torch.ones((1, cfe_state.num_basins), dtype=torch.float64)
         cfe_state.primary_flux_from_gw_m = torch.minimum(
             cfe_state.Cgw * flux_exponential, gw_reservoir["storage_m"]
-        )
+        ).clone()
 
         cfe_state.secondary_flux_from_gw_m = torch.zeros(
             (1, cfe_state.num_basins), dtype=torch.float64
