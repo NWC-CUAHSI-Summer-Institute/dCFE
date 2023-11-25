@@ -166,10 +166,9 @@ class DifferentiableCFE(BaseAgent):
         # Run CFE at each timestep
         for t, (x, y_t) in enumerate(tqdm(self.data_loader, desc="Processing data")):
             if run_mlp:
-                self.model.mlp_forward(self.states, t)
-            runoff, cfe_states = self.model(x, t)
+                self.model.mlp_forward(t)  # Instead
+            runoff = self.model(x, t)
             y_hat[:, t] = runoff
-            self.states[:, t, :] = cfe_states.detach()
 
         return y_hat
 
@@ -313,10 +312,10 @@ class DifferentiableCFE(BaseAgent):
 
         for i, basin_id in enumerate(self.data.basin_ids):
             # Save the timeseries of runoff and the best dynamic parametersers
-
+            # TODO: Save Cgw and satdk later
+            # "Cgw": Cgw[i, warmup:],
+            # "satdk": satdk_[i, warmup:],
             data = {
-                "Cgw": Cgw[i, warmup:],
-                "satdk": satdk_[i, warmup:],
                 "y_hat": y_hat[i, warmup:].squeeze(),
                 "y_t": y_t[i, warmup:].squeeze(),
             }

@@ -89,8 +89,8 @@ class BMI_CFE:
         self.cfg = cfg
 
         # NN params
-        self.Cgw = Cgw.unsqueeze(dim=0)
-        self.satdk = satdk.unsqueeze(dim=0)
+        self.Cgw = Cgw  # .unsqueeze(dim=0)
+        self.satdk = satdk  # .unsqueeze(dim=0)
 
         # This takes in the cfg read with Hydra from the yml file
         # self.cfe_cfg = global_params
