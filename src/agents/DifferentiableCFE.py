@@ -138,10 +138,8 @@ class DifferentiableCFE(BaseAgent):
 
         # Reset
         self.optimizer.zero_grad()
+        # Reset the model states and parameters, and gradients
         self.model.initialize()
-
-        # Reset the model states and parameters according to predicted parameters
-        # Cgw and satdk gets updated in the model as well
 
         # Run model
         y_hat = self.run_model(run_mlp=True)

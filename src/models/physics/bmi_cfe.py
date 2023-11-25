@@ -104,6 +104,32 @@ class BMI_CFE:
         # nn parameters
         # None
 
+    def reset_internal_attributes(self):
+        self.Schaake_adjusted_magic_constant_by_soil_type = (
+            self.Schaake_adjusted_magic_constant_by_soil_type.detach()
+        )
+        self.output_factor_cms = self.output_factor_cms.detach()
+
+        self.gw_reservoir["storage_m"] = self.gw_reservoir["storage_m"].detach()
+        self.gw_reservoir["storage_max_m"] = self.gw_reservoir["storage_max_m"].detach()
+
+        self.soil_reservoir["storage_m"] = self.soil_reservoir["storage_m"].detach()
+        self.soil_reservoir["wilting_point_m"] = self.soil_reservoir[
+            "wilting_point_m"
+        ].detach()
+        self.soil_reservoir["storage_max_m"] = self.soil_reservoir[
+            "storage_max_m"
+        ].detach()
+        self.soil_reservoir["coeff_primary"] = self.soil_reservoir[
+            "coeff_primary"
+        ].detach()
+        self.soil_reservoir["storage_threshold_primary_m"] = self.soil_reservoir[
+            "storage_threshold_primary_m"
+        ].detach()
+        self.soil_reservoir["storage_threshold_secondary_m"] = self.soil_reservoir[
+            "storage_threshold_secondary_m"
+        ].detach()
+
     def load_cfe_params(self):
         for param in self.cfe_params.values():
             if torch.is_tensor(param):
@@ -652,10 +678,6 @@ class BMI_CFE:
             print("    gw. residual: {:6.4e}".format(self.gw_residual[0][i].item()))
 
         return
-
-    # ________________________________________________________
-    def remove_grad(self):
-        self.output_factor_cms = self.output_factor_cms.detach()
 
     # ________________________________________________________
     def load_forcing_file(self):

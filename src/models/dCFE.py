@@ -73,15 +73,13 @@ class dCFE(nn.Module):
 
     def initialize(self):
         # Initialize the CFE model with the dynamic parameter
-
-        # Reset dCFE attributes
         self.reset_instance_attributes()
 
         # Reset CFE parameters, states, fluxes, and volume tracking
         self.cfe_instance.load_cfe_params()
         self.cfe_instance.reset_flux_and_states()
         self.cfe_instance.reset_volume_tracking()
-        self.cfe_instance.remove_grad()
+        self.cfe_instance.reset_internal_attributes()
 
     def reset_instance_attributes(self):
         self.cfe_instance.Cgw = self.ini_Cgw.detach()
