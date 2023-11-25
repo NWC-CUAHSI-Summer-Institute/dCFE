@@ -169,4 +169,6 @@ class dCFE(nn.Module):
             )
 
         # Run MLP
-        self.Cgw[:, t], self.satdk[:, t] = self.MLP(c)
+        _Cgw, _satdk = self.MLP(c)
+        self.Cgw[:, t] = _Cgw.clone()
+        self.satdk[:, t] = _satdk.clone()

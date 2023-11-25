@@ -142,8 +142,6 @@ class DifferentiableCFE(BaseAgent):
 
         # Reset the model states and parameters according to predicted parameters
         # Cgw and satdk gets updated in the model as well
-        self.model.mlp_forward(self.states, 0)
-        self.model.update_params(0)
 
         # Run model
         y_hat = self.run_model(run_mlp=True)
@@ -232,9 +230,6 @@ class DifferentiableCFE(BaseAgent):
         # Log the time taken for backpropagation and the calculated loss
         log.debug(f"Back prop took : {(end - start):.6f} seconds")
         log.debug(f"Loss: {loss}")
-
-        # Save results
-        # TODO: add to save loss
 
         # Update the model parameters
         self.model.print()
