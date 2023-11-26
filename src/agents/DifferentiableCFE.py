@@ -24,7 +24,7 @@ from data.Data import Data
 from data.metrics import calculate_nse
 from models.dCFE import dCFE
 from utils.ddp_setup import find_free_port, cleanup
-
+import shutil
 
 log = logging.getLogger("agents.DifferentiableCFE")
 
@@ -89,8 +89,9 @@ class DifferentiableCFE(BaseAgent):
         current_date = datetime.now().strftime("%Y-%m-%d")
         dir_name = f"{current_date}_output"
         output_dir = os.path.join(self.cfg.output_dir, dir_name)
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir)
         return output_dir
 
     def run(self):
@@ -130,7 +131,6 @@ class DifferentiableCFE(BaseAgent):
 
         for epoch in range(1, self.cfg.models.hyperparameters.epochs + 1):
             # TODO: Loop through basins
-            # Run dCFE for all basins ...
             log.info(f"Epoch #: {epoch}/{self.cfg.models.hyperparameters.epochs}")
             self.loss_record[epoch - 1] = self.train_one_epoch()
             self.current_epoch += 1
@@ -282,12 +282,17 @@ class DifferentiableCFE(BaseAgent):
         df.to_csv(file_path)
 
         fig, axes = plt.subplots()
-        axes.plot(self.loss_record, "-")
+        # Create the x-axis values
+        epoch_list = list(range(1, len(self.loss_record) + 1))
+
+        # Plotting
+        fig, axes = plt.subplots()
+        axes.plot(epoch_list, self.loss_record, "-")
         axes.set_title(
             f"Initial learning rate: {self.cfg.models.hyperparameters.learning_rate}"
         )
         axes.set_ylabel("loss")
-        axes.set_xlabel("epoch-1")
+        axes.set_xlabel("epoch")
         fig.tight_layout()
         plt.savefig(os.path.join(self.output_dir, f"final_result_loss.png"))
         plt.close()
@@ -316,9 +321,6 @@ class DifferentiableCFE(BaseAgent):
 
         for i, basin_id in enumerate(self.data.basin_ids):
             # Save the timeseries of runoff and the best dynamic parametersers
-            # TODO: Save Cgw and satdk later
-            # "Cgw": Cgw[i, warmup:],
-            # "satdk": satdk_[i, warmup:],
             data = {
                 "y_hat": y_hat[i, warmup:].squeeze(),
                 "y_t": y_t[i, warmup:].squeeze(),
@@ -335,8 +337,12 @@ class DifferentiableCFE(BaseAgent):
                 # Plot
                 eval_metrics = he.evaluator(he.kge, y_hat[i], y_t[i])[0]
                 fig, axes = plt.subplots(figsize=(5, 5))
-                axes.plot(y_t[i, warmup:], "-", label="eval (synthetic)", alpha=0.5)
-                axes.plot(y_hat[i, warmup:], "--", label="sim (recovery)", alpha=0.5)
+                if self.cfg.run_type == "ML_synthetic_test":
+                    eval_label = "evaluation (synthetic)"
+                elif self.cfg.run_type == "ML":
+                    eval_label = "observed"
+                axes.plot(y_t[i, warmup:], "-", label=eval_label, alpha=0.5)
+                axes.plot(y_hat[i, warmup:], "--", label="predicted", alpha=0.5)
                 axes.set_title(f"Classic (KGE={float(eval_metrics):.2})")
                 plt.legend()
                 plt.savefig(

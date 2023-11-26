@@ -34,19 +34,20 @@ data:
   json_params_dir: ${data.data_dir}\cat_{}_bmi_config_cfe.json
   partition_scheme: Schaake
   start_time: '2010-10-01 00:00:00'
-  end_time: '2011-09-30 23:00:00'
+  end_time: '2012-09-30 23:00:00'
 models:
   hyperparameters:
-    epochs: 10
-    learning_rate: 1
+    epochs: 30
+    learning_rate: 0.01
     warmup: 2000
     step_size: 1
-    gamma: 0.7
+    gamma: 0.92
   mlp:
-    hidden_size: 6
+    hidden_size: 256
     num_attrs: 3
     num_params: 2
     num_states: 2
+    lag_hrs: 24
   transformation:
     Cgw:
     - 1.8e-06
@@ -56,4 +57,4 @@ models:
     - 0.000726
   initial_params:
     Cgw: 0.000255
-    satdk: 1.82e-08
+    satdk: 0.0182
