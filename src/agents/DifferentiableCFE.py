@@ -77,6 +77,9 @@ class DifferentiableCFE(BaseAgent):
             ]
         )
 
+        self.Cgw_record = np.empty([self.data.num_basins, self.data.n_timesteps])
+        self.satdk_record = np.empty([self.data.num_basins, self.data.n_timesteps])
+
         # # Prepare for the DDP
         # free_port = find_free_port()
         # os.environ["MASTER_ADDR"] = "localhost"
@@ -126,6 +129,8 @@ class DifferentiableCFE(BaseAgent):
         self.run_model(run_mlp=False)
 
         for epoch in range(1, self.cfg.models.hyperparameters.epochs + 1):
+            # TODO: Loop through basins
+            # Run dCFE for all basins ...
             log.info(f"Epoch #: {epoch}/{self.cfg.models.hyperparameters.epochs}")
             self.loss_record[epoch - 1] = self.train_one_epoch()
             self.current_epoch += 1
@@ -167,6 +172,8 @@ class DifferentiableCFE(BaseAgent):
         for t, (x, y_t) in enumerate(tqdm(self.data_loader, desc="Processing data")):
             if run_mlp:
                 self.model.mlp_forward(t)  # Instead
+                self.Cgw_record[:, t] = self.model.Cgw.detach().numpy()
+                self.satdk_record[:, t] = self.model.satdk.detach().numpy()
             runoff = self.model(x, t)
             y_hat[:, t] = runoff
 
@@ -305,9 +312,6 @@ class DifferentiableCFE(BaseAgent):
     def save_result(self, y_hat, y_t, out_filename, plot_figure=False):
         # Save all basin runs
 
-        Cgw = self.model.Cgw.detach().numpy()
-        satdk_ = self.model.satdk.detach().numpy()
-
         warmup = self.cfg.models.hyperparameters.warmup
 
         for i, basin_id in enumerate(self.data.basin_ids):
@@ -318,6 +322,8 @@ class DifferentiableCFE(BaseAgent):
             data = {
                 "y_hat": y_hat[i, warmup:].squeeze(),
                 "y_t": y_t[i, warmup:].squeeze(),
+                "Cgw": self.Cgw_record[i, warmup:],
+                "satdk": self.satdk_record[i, warmup:],
             }
             df = pd.DataFrame(data)
             df.to_csv(
