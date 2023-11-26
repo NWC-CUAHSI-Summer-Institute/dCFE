@@ -121,8 +121,7 @@ class Data(Dataset):
             obs_q_ = pd.read_csv(cfg.data.compare_results_file.format(basin_id))
             obs_q_.set_index(pd.to_datetime(obs_q_["date"]), inplace=True)
             q = torch.tensor(
-                obs_q_["QObs(mm/h)"][self.start_time : self.end_time].copy().values
-                / cfg.conversions.m_to_mm,
+                obs_q_["QObs(mm/h)"][self.start_time : self.end_time].copy().values,
                 device=cfg.device,
             )
             y_ = torch.stack([q])

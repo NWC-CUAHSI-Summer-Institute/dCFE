@@ -24,7 +24,7 @@ from data.Data import Data
 from data.metrics import calculate_nse
 from models.dCFE import dCFE
 from utils.ddp_setup import find_free_port, cleanup
-
+import shutil
 
 log = logging.getLogger("agents.DifferentiableCFE")
 
@@ -77,6 +77,9 @@ class DifferentiableCFE(BaseAgent):
             ]
         )
 
+        self.Cgw_record = np.empty([self.data.num_basins, self.data.n_timesteps])
+        self.satdk_record = np.empty([self.data.num_basins, self.data.n_timesteps])
+
         # # Prepare for the DDP
         # free_port = find_free_port()
         # os.environ["MASTER_ADDR"] = "localhost"
@@ -86,8 +89,9 @@ class DifferentiableCFE(BaseAgent):
         current_date = datetime.now().strftime("%Y-%m-%d")
         dir_name = f"{current_date}_output"
         output_dir = os.path.join(self.cfg.output_dir, dir_name)
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir)
         return output_dir
 
     def run(self):
@@ -126,6 +130,7 @@ class DifferentiableCFE(BaseAgent):
         self.run_model(run_mlp=False)
 
         for epoch in range(1, self.cfg.models.hyperparameters.epochs + 1):
+            # TODO: Loop through basins
             log.info(f"Epoch #: {epoch}/{self.cfg.models.hyperparameters.epochs}")
             self.loss_record[epoch - 1] = self.train_one_epoch()
             self.current_epoch += 1
@@ -167,6 +172,8 @@ class DifferentiableCFE(BaseAgent):
         for t, (x, y_t) in enumerate(tqdm(self.data_loader, desc="Processing data")):
             if run_mlp:
                 self.model.mlp_forward(t)  # Instead
+                self.Cgw_record[:, t] = self.model.Cgw.detach().numpy()
+                self.satdk_record[:, t] = self.model.satdk.detach().numpy()
             runoff = self.model(x, t)
             y_hat[:, t] = runoff
 
@@ -275,12 +282,17 @@ class DifferentiableCFE(BaseAgent):
         df.to_csv(file_path)
 
         fig, axes = plt.subplots()
-        axes.plot(self.loss_record, "-")
+        # Create the x-axis values
+        epoch_list = list(range(1, len(self.loss_record) + 1))
+
+        # Plotting
+        fig, axes = plt.subplots()
+        axes.plot(epoch_list, self.loss_record, "-")
         axes.set_title(
             f"Initial learning rate: {self.cfg.models.hyperparameters.learning_rate}"
         )
         axes.set_ylabel("loss")
-        axes.set_xlabel("epoch-1")
+        axes.set_xlabel("epoch")
         fig.tight_layout()
         plt.savefig(os.path.join(self.output_dir, f"final_result_loss.png"))
         plt.close()
@@ -305,19 +317,15 @@ class DifferentiableCFE(BaseAgent):
     def save_result(self, y_hat, y_t, out_filename, plot_figure=False):
         # Save all basin runs
 
-        Cgw = self.model.Cgw.detach().numpy()
-        satdk_ = self.model.satdk.detach().numpy()
-
         warmup = self.cfg.models.hyperparameters.warmup
 
         for i, basin_id in enumerate(self.data.basin_ids):
             # Save the timeseries of runoff and the best dynamic parametersers
-            # TODO: Save Cgw and satdk later
-            # "Cgw": Cgw[i, warmup:],
-            # "satdk": satdk_[i, warmup:],
             data = {
                 "y_hat": y_hat[i, warmup:].squeeze(),
                 "y_t": y_t[i, warmup:].squeeze(),
+                "Cgw": self.Cgw_record[i, warmup:],
+                "satdk": self.satdk_record[i, warmup:],
             }
             df = pd.DataFrame(data)
             df.to_csv(
@@ -329,8 +337,12 @@ class DifferentiableCFE(BaseAgent):
                 # Plot
                 eval_metrics = he.evaluator(he.kge, y_hat[i], y_t[i])[0]
                 fig, axes = plt.subplots(figsize=(5, 5))
-                axes.plot(y_t[i, warmup:], "-", label="eval (synthetic)", alpha=0.5)
-                axes.plot(y_hat[i, warmup:], "--", label="sim (recovery)", alpha=0.5)
+                if self.cfg.run_type == "ML_synthetic_test":
+                    eval_label = "evaluation (synthetic)"
+                elif self.cfg.run_type == "ML":
+                    eval_label = "observed"
+                axes.plot(y_t[i, warmup:], "-", label=eval_label, alpha=0.5)
+                axes.plot(y_hat[i, warmup:], "--", label="predicted", alpha=0.5)
                 axes.set_title(f"Classic (KGE={float(eval_metrics):.2})")
                 plt.legend()
                 plt.savefig(
