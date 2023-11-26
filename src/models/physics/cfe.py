@@ -407,10 +407,11 @@ class CFE:
     def update_current_time(self, cfe_state):
         cfe_state.current_time_step += 1
         cfe_state.current_time += pd.Timedelta(value=cfe_state.time_step_size, unit="s")
-        if np.random.random() < 0.001:
-            print(
-                f"cfe line 462 --- Cgw: {cfe_state.Cgw}, cfe_state.soil_reservoir[coeff_primary]: {cfe_state.soil_reservoir['coeff_primary']}"
-            )
+        if cfe_state.verbose:
+            if np.random.random() < 0.001:
+                print(
+                    f"cfe line 462 --- Cgw: {cfe_state.Cgw}, cfe_state.soil_reservoir[coeff_primary]: {cfe_state.soil_reservoir['coeff_primary']}"
+                )
 
     # __________________________________________________________________________________________________________
     # __________________________________________________________________________________________________________
