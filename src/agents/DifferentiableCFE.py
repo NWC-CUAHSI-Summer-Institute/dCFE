@@ -53,7 +53,7 @@ class DifferentiableCFE(BaseAgent):
 
         # Defining the torch Dataset and Dataloader
         self.data = Data(self.cfg)
-        self.data_loader = DataLoader(self.data, batch_size=1, shuffle=True)
+        self.data_loader = DataLoader(self.data, batch_size=1, shuffle=False)
 
         # Defining the model
         self.model = dCFE(cfg=self.cfg, Data=self.data)

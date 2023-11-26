@@ -1,6 +1,7 @@
 """A class to hold the Multilayer Perceptron Model to estimate soil parameters"""
 import torch
 import math
+import numpy as np
 
 torch.set_default_dtype(torch.float64)
 # from torch.nn import Linear, Sigmoid
@@ -54,6 +55,9 @@ class MLP(nn.Module):
         # Defining the layers using nn.Sequential
         self.network = nn.Sequential(
             Linear(input_size, hidden_size),
+            nn.Tanh(),
+            Linear(hidden_size, hidden_size),
+            nn.Tanh(),
             Linear(hidden_size, output_size),
             Sigmoid(),
         )
