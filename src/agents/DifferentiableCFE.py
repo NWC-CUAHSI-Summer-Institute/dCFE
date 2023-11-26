@@ -48,14 +48,16 @@ class DifferentiableCFE(BaseAgent):
         self.output_dir = self.create_output_dir()
 
         # Setting the cfg object and manual seed for reproducibility
-        torch.manual_seed(0)
+        torch.manual_seed(99)
         torch.set_default_dtype(torch.float64)
 
         # Defining the torch Dataset and Dataloader
         self.data = Data(self.cfg)
-        self.data_loader = DataLoader(self.data, batch_size=1, shuffle=True)
+        self.data_loader = DataLoader(self.data, batch_size=1, shuffle=False)
 
         # Defining the model
+        print(self.data)
+        print(self.data_loader)
         self.model = dCFE(cfg=self.cfg, Data=self.data)
         self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.Adam(
@@ -230,9 +232,13 @@ class DifferentiableCFE(BaseAgent):
 
         # Update the model parameters
         self.model.print()
+        # for name, param in self.model.named_parameters():
+        #     print(f"{name}: {param}")
         print("Start optimizer")
         self.optimizer.step()
         print("End optimizer")
+        # for name, param in self.model.named_parameters():
+        #     print(f"{name}: {param}")
         self.scheduler.step()
         print("Current Learning Rate:", self.optimizer.param_groups[0]["lr"])
         return loss

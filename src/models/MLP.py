@@ -1,7 +1,7 @@
 """A class to hold the Multilayer Perceptron Model to estimate soil parameters"""
 import torch
 import math
-
+import numpy as np
 torch.set_default_dtype(torch.float64)
 # from torch.nn import Linear, Sigmoid
 from omegaconf import DictConfig
@@ -54,6 +54,9 @@ class MLP(nn.Module):
         # Defining the layers using nn.Sequential
         self.network = nn.Sequential(
             Linear(input_size, hidden_size),
+            nn.Tanh(),
+            Linear(hidden_size, hidden_size),
+            nn.Tanh(),
             Linear(hidden_size, output_size),
             Sigmoid(),
         )
@@ -76,4 +79,11 @@ class MLP(nn.Module):
         # (num_basin, timestep)
         Cgw = to_physical(x=x_transpose[:, 0], param="Cgw", cfg=self.cfg.models)
         satdk = to_physical(x=x_transpose[:, 1], param="satdk", cfg=self.cfg.models)
+
+        # if np.random.random() < 0.0001:
+        #     print("_x", _x)
+        #     print("x_transpose", x_transpose)
+        #     print("Cgw", Cgw)
+        #     print("satdk", satdk)
+
         return Cgw, satdk

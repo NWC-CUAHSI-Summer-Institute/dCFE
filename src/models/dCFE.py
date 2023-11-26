@@ -46,6 +46,9 @@ class dCFE(nn.Module):
 
         # Set up MLP instance
         self.normalized_c = normalization(Data.c)
+        print(Data.c)
+        print("-----------------------NORMALIZED-------------------------")
+        print(self.normalized_c)
         self.MLP = MLP(self.cfg, Data)
 
         self.data = Data
@@ -87,6 +90,10 @@ class dCFE(nn.Module):
 
         # Read the forcing
         precip = x[:, :, 0]
+        # print("\n--------------------------------")
+        # print("dCFE first precipitation")
+        # print(x)
+        # print("--------------------------------\n")
         pet = x[:, :, 1]
 
         # Set precip and PET values in CFE
@@ -108,6 +115,8 @@ class dCFE(nn.Module):
 
     def update_params(self):
         self.cfe_instance.update_params(self.Cgw, self.satdk)
+        if np.random.random() < 0.0005:
+            print(f"dCFE line 111 --- Cgw: {self.Cgw}, satdf: {self.satdk}")
 
     def finalize(self):
         self.cfe_instance.finalize(print_mass_balance=True)

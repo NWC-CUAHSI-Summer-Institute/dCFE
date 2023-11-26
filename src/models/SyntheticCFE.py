@@ -61,6 +61,11 @@ class SyntheticCFE(nn.Module):
 
         # Read the forcing
         precip = x[:, :, 0]
+        print("\n--------------------------------")
+        print("SyntheticCFE first precipitation")
+        print(x)
+        print("--------------------------------\n")
+        sdfsdf
         pet = x[:, :, 1]
 
         # Set precip and PET values
