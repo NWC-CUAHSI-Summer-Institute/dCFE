@@ -108,6 +108,8 @@ class dCFE(nn.Module):
 
     def update_params(self):
         self.cfe_instance.update_params(self.Cgw, self.satdk)
+        if np.random.random() < 0.0005:
+            print(f"dCFE line 111 --- Cgw: {self.Cgw}, satdf: {self.satdk}")
 
     def finalize(self):
         self.cfe_instance.finalize(print_mass_balance=True)
@@ -164,11 +166,3 @@ class dCFE(nn.Module):
         _Cgw, _satdk = self.MLP(c)
         self.Cgw = _Cgw.clone()
         self.satdk = _satdk.clone()
-
-
-# Try 2000 epochs
-# Plot 10 different timesteps agianst synthetic
-
-# Reason of not learning
-# - Vashishing gradient
-# -
