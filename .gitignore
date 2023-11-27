@@ -166,3 +166,5 @@ testground_codes/*
 
 *.pdf
 *.zip
+
+data/synthetic_case_from_original_code/*
