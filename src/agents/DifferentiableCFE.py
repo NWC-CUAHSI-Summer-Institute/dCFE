@@ -53,15 +53,13 @@ class DifferentiableCFE(BaseAgent):
 
         # Defining the torch Dataset and Dataloader
         self.train_data = Data(self.cfg, "train")
-        self.validate_data = Data(self.cfg, "train")
+        # self.validate_data = Data(self.cfg, "validate")
         self.train_data_loader = DataLoader(
             self.train_data, batch_size=1, shuffle=False
         )
 
         # Defining the model
-        self.model = dCFE(
-            cfg=self.cfg, TrainData=self.train_data, ValidateData=self.validate_data
-        )
+        self.model = dCFE(cfg=self.cfg, Data=self.train_data)
         self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=cfg.models.hyperparameters.learning_rate
@@ -123,6 +121,7 @@ class DifferentiableCFE(BaseAgent):
         self.model.train()  # this .train() is a function from nn.Module
 
         self.loss_record = np.zeros(self.cfg.models.hyperparameters.epochs)
+        self.validate_loss_record = np.zeros(self.cfg.models.hyperparameters.epochs)
 
         # dist.init_process_group(
         #     backend="gloo",
@@ -142,6 +141,8 @@ class DifferentiableCFE(BaseAgent):
             # TODO: Loop through basins
             log.info(f"Epoch #: {epoch}/{self.cfg.models.hyperparameters.epochs}")
             self.loss_record[epoch - 1] = self.train_one_epoch()
+            self.save_weights_and_optimizer(epoch)
+            self.validate_loss_record[epoch - 1] = self.validate()
             self.current_epoch += 1
 
     def train_one_epoch(self):
@@ -166,7 +167,7 @@ class DifferentiableCFE(BaseAgent):
         #######
 
         # Calculate the loss
-        loss = self.validate(y_hat, self.train_data.y)
+        loss = self.evaluate(y_hat, self.train_data.y)
 
         return loss
 
@@ -191,7 +192,7 @@ class DifferentiableCFE(BaseAgent):
 
         return y_hat
 
-    def validate(self, y_hat_: Tensor, y_t_: Tensor) -> None:
+    def evaluate(self, y_hat_: Tensor, y_t_: Tensor) -> None:
         """
         One cycle of model validation
         This function calculates the loss for the given predicted and actual values,
@@ -255,6 +256,19 @@ class DifferentiableCFE(BaseAgent):
         self.scheduler.step()
         print("Current Learning Rate:", self.optimizer.param_groups[0]["lr"])
         return loss
+
+    def save_weights_and_optimizer(self, epoch: int):
+        weight_path = os.path.join(self.output_dir, f"model_epoch{epoch:03d}.pt")
+        torch.save(self.model.state_dict(), str(weight_path))
+
+        optimizer_path = os.path.join(
+            self.output_dir, f"optimizer_state_epoch{epoch:03d}.pt"
+        )
+        torch.save(self.optimizer.state_dict(), str(optimizer_path))
+
+    def validate(self):
+        # with torch.no_grad():
+        None
 
     def finalize(self):
         """

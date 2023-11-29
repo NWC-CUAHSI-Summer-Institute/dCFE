@@ -22,16 +22,18 @@ T = TypeVar("T")
 
 
 class Data(Dataset):
-    def __init__(self, cfg: DictConfig, mode: str) -> None:
+    def __init__(self, cfg: DictConfig, period: str) -> None:
         super().__init__()
 
         self.cfg = cfg
-        self.mode = mode
+        self.period = period
 
         # Read in start and end datetime, Get the size of the observation
         datetime_format = r"%Y-%m-%d %H:%M:%S"
-        self.start_time = datetime.strptime(cfg.data[mode].start_time, datetime_format)
-        self.end_time = datetime.strptime(cfg.data[mode].end_time, datetime_format)
+        self.start_time = datetime.strptime(
+            cfg.data[period].start_time, datetime_format
+        )
+        self.end_time = datetime.strptime(cfg.data[period].end_time, datetime_format)
 
         self.n_timesteps = self.calc_timestep_size(cfg)
 
@@ -88,7 +90,7 @@ class Data(Dataset):
 
         # Read forcing data into pandas dataframe
         for i, basin_id in tqdm(
-            enumerate(self.basin_ids), desc=f"Reading forcing data ({self.mode})"
+            enumerate(self.basin_ids), desc=f"Reading forcing data ({self.period})"
         ):
             forcing_df_ = pd.read_csv(cfg.data.forcing_file.format(basin_id))
             forcing_df_.set_index(pd.to_datetime(forcing_df_["date"]), inplace=True)
@@ -118,7 +120,7 @@ class Data(Dataset):
         output_tensor = torch.zeros([self.num_basins, self.n_timesteps, 1])
 
         for i, basin_id in tqdm(
-            enumerate(self.basin_ids), desc=f"Reading observation data ({self.mode})"
+            enumerate(self.basin_ids), desc=f"Reading observation data ({self.period})"
         ):
             obs_q_ = pd.read_csv(cfg.data.compare_results_file.format(basin_id))
             obs_q_.set_index(pd.to_datetime(obs_q_["date"]), inplace=True)
@@ -162,7 +164,7 @@ class Data(Dataset):
 
         # Read forcing data into pandas dataframe
         for i, basin_id in tqdm(
-            enumerate(self.basin_ids), desc=f"Reading forcing data ({self.mode})"
+            enumerate(self.basin_ids), desc=f"Reading forcing data ({self.period})"
         ):
             forcing_df_ = pd.read_csv(cfg.data.forcing_file.format(basin_id))
             forcing_df_.set_index(pd.to_datetime(forcing_df_["date"]), inplace=True)
@@ -187,7 +189,8 @@ class Data(Dataset):
 
         # Read forcing data into pandas dataframe
         for i, basin_id in tqdm(
-            enumerate(self.basin_ids), desc=f"Reading dynamic attributes ({self.mode})"
+            enumerate(self.basin_ids),
+            desc=f"Reading dynamic attributes ({self.period})",
         ):
             forcing_df_ = pd.read_csv(cfg.data.forcing_file.format(basin_id))
             forcing_df_.set_index(pd.to_datetime(forcing_df_["date"]), inplace=True)

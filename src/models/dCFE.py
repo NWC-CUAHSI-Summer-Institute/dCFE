@@ -37,7 +37,7 @@ log = logging.getLogger("models.dCFE")
 
 
 class dCFE(nn.Module):
-    def __init__(self, cfg: DictConfig, TrainData, ValidateData) -> None:
+    def __init__(self, cfg: DictConfig, Data) -> None:
         """
         :param cfg:
         """
@@ -45,24 +45,21 @@ class dCFE(nn.Module):
         self.cfg = cfg
 
         # Set up MLP instance
-        self.train_normalized_c = normalization(TrainData.c)
+        self.normalized_c = normalization(Data.c)
         self.MLP = MLP(self.cfg)
 
-        self.train_data = TrainData
+        self.data = Data
 
         # Initialize the CFE model
-        self.Cgw = (
-            torch.ones(self.train_data.num_basins) * self.cfg.models.initial_params.Cgw
-        )
+        self.Cgw = torch.ones(self.data.num_basins) * self.cfg.models.initial_params.Cgw
         self.satdk = (
-            torch.ones(self.train_data.num_basins)
-            * self.cfg.models.initial_params.satdk
+            torch.ones(self.data.num_basins) * self.cfg.models.initial_params.satdk
         )
         self.cfe_instance = BMI_CFE(
             Cgw=self.Cgw,
             satdk=self.satdk,
             cfg=self.cfg,
-            cfe_params=self.train_data.params,
+            cfe_params=self.data.params,
         )
         self.cfe_instance.initialize()
 
@@ -79,7 +76,7 @@ class dCFE(nn.Module):
     def reset_instance_attributes(self):
         self.cfe_instance.Cgw = self.Cgw.detach()
         self.cfe_instance.satdk = self.satdk.detach()
-        self.train_normalized_c = self.train_normalized_c.detach()
+        self.normalized_c = self.normalized_c.detach()
 
     def forward(self, x, t):  # -> (Tensor, Tensor):
         """
@@ -112,7 +109,7 @@ class dCFE(nn.Module):
     def update_params(self):
         self.cfe_instance.update_params(self.Cgw, self.satdk)
         if np.random.random() < 0.0005:
-            print(f"dCFE line 111 --- Cgw: {self.Cgw}, satdf: {self.satdk}")
+            print(f"dCFE line 111 --- Cgw: {self.Cgw}, satdk: {self.satdk}")
 
     def finalize(self):
         self.cfe_instance.finalize(print_mass_balance=True)
@@ -150,9 +147,7 @@ class dCFE(nn.Module):
             # when t is up to the lag ours, just repeat the c[t] for lag_hr times as input
             c = torch.cat(
                 (
-                    self.train_normalized_c[:, t, :]
-                    .unsqueeze(dim=1)
-                    .repeat(1, lag_hrs, 1),
+                    self.normalized_c[:, t, :].unsqueeze(dim=1).repeat(1, lag_hrs, 1),
                     normalized_states.unsqueeze(dim=1).repeat(1, lag_hrs, 1),
                 ),
                 dim=2,
@@ -161,7 +156,7 @@ class dCFE(nn.Module):
             # when t exceed the lag ours, take the c[t-lag_hr,t] as input
             c = torch.cat(
                 (
-                    self.train_normalized_c[:, (t - lag_hrs) : t, :],
+                    self.normalized_c[:, (t - lag_hrs) : t, :],
                     normalized_states.unsqueeze(dim=1).repeat(1, lag_hrs, 1),
                 ),
                 dim=2,
