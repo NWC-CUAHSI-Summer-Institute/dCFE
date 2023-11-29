@@ -4,6 +4,7 @@ channels:
   - defaults
   # - anaconda
   - conda-forge
+  - mullenkamp
 dependencies:
   - bmipy
   - bokeh
@@ -16,7 +17,8 @@ dependencies:
   - torchdiffeq
   - tqdm
   - scikit-learn
+  - eto
   - pip
-  conda install -c mullenkamp eto
   - pip:
     - hydra-core
+    - tensorflow

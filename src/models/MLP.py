@@ -21,33 +21,32 @@ from utils.transform import to_physical
 
 
 class MLP(nn.Module):
-    def __init__(self, cfg: DictConfig, Data) -> None:
+    def __init__(self, cfg: DictConfig) -> None:
         super().__init__()
         """
         The Multilayer Perceptron Model (MLP) which learns values
-        of Cgw and satdk from downstream discharge
+        of Cgw and satdk from downstream discharge configured for a prediction of a single basin
 
         args:
         - cfg: The DictConfig object that houses global variables
-        - Data: The input data tensor
         """
 
         self.cfg = cfg
 
         # The size of the attributes going into MLP corresponds to self.cfg.models.mlp.input_size
         # The size of out1 from MLP correponds to self.cfg.models.mlp.output_size (sso increase this when increasing parameters)
-
+        num_basin = 1
         torch.manual_seed(0)
         input_size = (
-            Data.num_basins
+            num_basin
             * self.cfg.models.mlp.lag_hrs
             * (self.cfg.models.mlp.num_attrs + self.cfg.models.mlp.num_states)
         )
         hidden_size = self.cfg.models.mlp.hidden_size
         output_size = (
-            Data.num_basins * self.cfg.models.mlp.num_params
+            num_basin * self.cfg.models.mlp.num_params
         )  # self.cfg.models.mlp.output_size
-        output_shape = (self.cfg.models.mlp.num_params, Data.num_basins)
+        output_shape = (self.cfg.models.mlp.num_params, num_basin)
 
         self.m1 = Flatten(start_dim=0, end_dim=-1)
         self.m2 = Unflatten(dim=0, unflattened_size=output_shape)

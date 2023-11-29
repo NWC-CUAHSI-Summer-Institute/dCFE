@@ -52,11 +52,16 @@ class DifferentiableCFE(BaseAgent):
         torch.set_default_dtype(torch.float64)
 
         # Defining the torch Dataset and Dataloader
-        self.data = Data(self.cfg)
-        self.data_loader = DataLoader(self.data, batch_size=1, shuffle=False)
+        self.train_data = Data(self.cfg, "train")
+        self.validate_data = Data(self.cfg, "train")
+        self.train_data_loader = DataLoader(
+            self.train_data, batch_size=1, shuffle=False
+        )
 
         # Defining the model
-        self.model = dCFE(cfg=self.cfg, Data=self.data)
+        self.model = dCFE(
+            cfg=self.cfg, TrainData=self.train_data, ValidateData=self.validate_data
+        )
         self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=cfg.models.hyperparameters.learning_rate
@@ -71,14 +76,18 @@ class DifferentiableCFE(BaseAgent):
 
         self.states = torch.zeros(
             [
-                self.data.num_basins,
-                self.data.n_timesteps,
+                self.train_data.num_basins,
+                self.train_data.n_timesteps,
                 self.cfg.models.mlp.num_states,
             ]
         )
 
-        self.Cgw_record = np.empty([self.data.num_basins, self.data.n_timesteps])
-        self.satdk_record = np.empty([self.data.num_basins, self.data.n_timesteps])
+        self.Cgw_record = np.empty(
+            [self.train_data.num_basins, self.train_data.n_timesteps]
+        )
+        self.satdk_record = np.empty(
+            [self.train_data.num_basins, self.train_data.n_timesteps]
+        )
 
         # # Prepare for the DDP
         # free_port = find_free_port()
@@ -157,19 +166,22 @@ class DifferentiableCFE(BaseAgent):
         #######
 
         # Calculate the loss
-        loss = self.validate(y_hat, self.data.y)
+        loss = self.validate(y_hat, self.train_data.y)
 
         return loss
 
     def run_model(self, run_mlp=False):
         # initialize
         y_hat = torch.empty(
-            [self.data.num_basins, self.data.n_timesteps], device=self.cfg.device
+            [self.train_data.num_basins, self.train_data.n_timesteps],
+            device=self.cfg.device,
         )
         y_hat.fill_(float("nan"))
 
         # Run CFE at each timestep
-        for t, (x, y_t) in enumerate(tqdm(self.data_loader, desc="Processing data")):
+        for t, (x, y_t) in enumerate(
+            tqdm(self.train_data_loader, desc="Processing data")
+        ):
             if run_mlp:
                 self.model.mlp_forward(t)  # Instead
                 self.Cgw_record[:, t] = self.model.Cgw.detach().numpy()
@@ -191,7 +203,7 @@ class DifferentiableCFE(BaseAgent):
         """
 
         # Transform validation/output data for validation
-        y_t_ = y_t_.squeeze()
+        y_t_ = y_t_.squeeze(dim=2)
         warmup = self.cfg.models.hyperparameters.warmup
         y_hat = y_hat_[:, warmup:]
         y_t = y_t_[:, warmup:]
@@ -203,7 +215,7 @@ class DifferentiableCFE(BaseAgent):
         # Evaluate
         kge = he.evaluator(he.kge, y_hat_np[0], y_t_np[0])
         log.info(
-            f"trained KGE for the basin {self.data.basin_ids[0]}: {float(kge[0]):.4}"
+            f"trained KGE for the basin {self.train_data.basin_ids[0]}: {float(kge[0]):.4}"
         )
 
         self.save_result(
@@ -259,7 +271,7 @@ class DifferentiableCFE(BaseAgent):
             y_hat = self.run_model(run_mlp=False)
 
             y_hat_ = y_hat.detach().numpy()
-            y_t_ = self.data.y.detach().numpy()
+            y_t_ = self.train_data.y.detach().numpy()
 
             self.save_result(
                 y_hat=y_hat_,
@@ -319,7 +331,7 @@ class DifferentiableCFE(BaseAgent):
 
         warmup = self.cfg.models.hyperparameters.warmup
 
-        for i, basin_id in enumerate(self.data.basin_ids):
+        for i, basin_id in enumerate(self.train_data.basin_ids):
             # Save the timeseries of runoff and the best dynamic parametersers
             data = {
                 "y_hat": y_hat[i, warmup:].squeeze(),
