@@ -78,6 +78,10 @@ class DifferentiableCFE(BaseAgent):
 
         self.current_epoch = 0
 
+        # Initialize the record
+        self.loss_record = np.zeros(self.cfg.models.hyperparameters.epochs)
+        self.loss_record_validate = np.zeros(self.cfg.models.hyperparameters.epochs)
+
         # # Prepare for the DDP
         # free_port = find_free_port()
         # os.environ["MASTER_ADDR"] = "localhost"
@@ -135,8 +139,6 @@ class DifferentiableCFE(BaseAgent):
             self.current_epoch += 1
 
     def initialize_record(self):
-        self.loss_record = np.zeros(self.cfg.models.hyperparameters.epochs)
-        self.loss_record_validate = np.zeros(self.cfg.models.hyperparameters.epochs)
         self.Cgw_train = np.empty(
             [self.train_data.num_basins, self.train_data.n_timesteps]
         )
