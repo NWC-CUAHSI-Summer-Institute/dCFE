@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 
 from data.Data import Data
 from models.dCFE import dCFE
+from utils.transform import normalization
 
 log = logging.getLogger("agents.DifferentiableCFE")
 
@@ -63,7 +64,7 @@ class TestingAgent:
         )
         y_hat.fill_(float("nan"))
 
-        test_normalized_c = data.c
+        test_normalized_c = normalization(data.c, data.min_c, data.max_c)
         # Run CFE at each timestep
         for t, (x, _) in enumerate(tqdm(dataloader, desc="test")):
             if run_mlp:

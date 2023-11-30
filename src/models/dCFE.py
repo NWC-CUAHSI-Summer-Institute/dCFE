@@ -45,9 +45,13 @@ class dCFE(nn.Module):
         self.cfg = cfg
 
         # Set up MLP instance
-        self.normalized_c_train = normalization(TrainData.c)
+        self.normalized_c_train = normalization(
+            TrainData.c, TrainData.min_c, TrainData.max_c
+        )
         # TODO: normalized based on training data
-        self.normalized_c_validate = normalization(ValidateData.c)
+        self.normalized_c_validate = normalization(
+            ValidateData.c, ValidateData.min_c, ValidateData.max_c
+        )
         self.MLP = MLP(self.cfg)
 
         self.data = TrainData

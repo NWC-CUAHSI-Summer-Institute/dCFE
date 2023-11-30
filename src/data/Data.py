@@ -46,7 +46,7 @@ class Data(Dataset):
         self.x = self.get_forcings(cfg)
 
         # self.c = self.get_dynamic_attributes(cfg) # This use NLDAS attributes that are NOT used for forcing calculation
-        self.c = self.get_forcing_as_attributes(
+        self.c, self.min_c, self.max_c = self.get_forcing_as_attributes(
             cfg
         )  # This use NLDAS attributes that are used as forcing
 
@@ -182,7 +182,10 @@ class Data(Dataset):
             # c_tr = c_.transpose(0, 1) No need now because it is only one attribute
             output_tensor[i, :, -1] = Tair
 
-        return output_tensor
+        historical_min, _ = torch.min(output_tensor, dim=1)
+        historical_max, _ = torch.max(output_tensor, dim=1)
+
+        return output_tensor, historical_min, historical_max
 
     def get_dynamic_attributes(self, cfg: DictConfig):
         output_tensor = torch.zeros(
