@@ -37,7 +37,7 @@ log = logging.getLogger("models.dCFE")
 
 
 class dCFE(nn.Module):
-    def __init__(self, cfg: DictConfig, Data) -> None:
+    def __init__(self, cfg: DictConfig, TrainData, ValidateData) -> None:
         """
         :param cfg:
         """
@@ -45,10 +45,13 @@ class dCFE(nn.Module):
         self.cfg = cfg
 
         # Set up MLP instance
-        self.normalized_c = normalization(Data.c)
+        self.normalized_c_train = normalization(TrainData.c)
+        # TODO: normalized based on training data
+        self.normalized_c_validate = normalization(ValidateData.c)
         self.MLP = MLP(self.cfg)
 
-        self.data = Data
+        self.data = TrainData
+        self.data_validate = ValidateData
 
         # Initialize the CFE model
         self.Cgw = torch.ones(self.data.num_basins) * self.cfg.models.initial_params.Cgw
@@ -76,7 +79,7 @@ class dCFE(nn.Module):
     def reset_instance_attributes(self):
         self.cfe_instance.Cgw = self.Cgw.detach()
         self.cfe_instance.satdk = self.satdk.detach()
-        self.normalized_c = self.normalized_c.detach()
+        self.normalized_c_train = self.normalized_c_train.detach()
 
     def forward(self, x, t):  # -> (Tensor, Tensor):
         """
@@ -119,10 +122,15 @@ class dCFE(nn.Module):
         # log.info(f"Cgw at timestep 0: {self.Cgw.tolist()[0][0]:.6f}")
         # log.info(f"satdk at timestep 0: {self.satdk.tolist()[0][0]:.6f}")
 
-    def mlp_forward(self, t) -> None:
+    def mlp_forward(self, t, period) -> None:
         """
         A function to run MLP(). It sets the parameter values used within MC
         """
+
+        if period == "train":
+            normalized_c = self.normalized_c_train
+        elif period == "validate":
+            normalized_c = self.normalized_c_validate
 
         lag_hrs = self.cfg.models.mlp.lag_hrs
 
@@ -147,7 +155,7 @@ class dCFE(nn.Module):
             # when t is up to the lag ours, just repeat the c[t] for lag_hr times as input
             c = torch.cat(
                 (
-                    self.normalized_c[:, t, :].unsqueeze(dim=1).repeat(1, lag_hrs, 1),
+                    normalized_c[:, t, :].unsqueeze(dim=1).repeat(1, lag_hrs, 1),
                     normalized_states.unsqueeze(dim=1).repeat(1, lag_hrs, 1),
                 ),
                 dim=2,
@@ -156,7 +164,7 @@ class dCFE(nn.Module):
             # when t exceed the lag ours, take the c[t-lag_hr,t] as input
             c = torch.cat(
                 (
-                    self.normalized_c[:, (t - lag_hrs) : t, :],
+                    normalized_c[:, (t - lag_hrs) : t, :],
                     normalized_states.unsqueeze(dim=1).repeat(1, lag_hrs, 1),
                 ),
                 dim=2,

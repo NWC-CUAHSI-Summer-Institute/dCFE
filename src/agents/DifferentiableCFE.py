@@ -53,13 +53,18 @@ class DifferentiableCFE(BaseAgent):
 
         # Defining the torch Dataset and Dataloader
         self.train_data = Data(self.cfg, "train")
-        # self.validate_data = Data(self.cfg, "validate")
         self.train_data_loader = DataLoader(
             self.train_data, batch_size=1, shuffle=False
         )
+        self.validate_data = Data(self.cfg, "validate")
+        self.validate_data_loader = DataLoader(
+            self.validate_data, batch_size=1, shuffle=False
+        )
 
         # Defining the model
-        self.model = dCFE(cfg=self.cfg, Data=self.train_data)
+        self.model = dCFE(
+            cfg=self.cfg, TrainData=self.train_data, ValidateData=self.validate_data
+        )
         self.criterion = torch.nn.MSELoss()
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=cfg.models.hyperparameters.learning_rate
@@ -71,21 +76,6 @@ class DifferentiableCFE(BaseAgent):
         )
 
         self.current_epoch = 0
-
-        self.states = torch.zeros(
-            [
-                self.train_data.num_basins,
-                self.train_data.n_timesteps,
-                self.cfg.models.mlp.num_states,
-            ]
-        )
-
-        self.Cgw_record = np.empty(
-            [self.train_data.num_basins, self.train_data.n_timesteps]
-        )
-        self.satdk_record = np.empty(
-            [self.train_data.num_basins, self.train_data.n_timesteps]
-        )
 
         # # Prepare for the DDP
         # free_port = find_free_port()
@@ -119,10 +109,6 @@ class DifferentiableCFE(BaseAgent):
         specified in the configuration.
         """
         self.model.train()  # this .train() is a function from nn.Module
-
-        self.loss_record = np.zeros(self.cfg.models.hyperparameters.epochs)
-        self.validate_loss_record = np.zeros(self.cfg.models.hyperparameters.epochs)
-
         # dist.init_process_group(
         #     backend="gloo",
         #     world_size=0,
@@ -135,15 +121,33 @@ class DifferentiableCFE(BaseAgent):
         # Run process model once to get the internal states
         log.info("Initializing the model")
         self.model.initialize()
-        self.run_model(run_mlp=False)
+        self.run_model(run_mlp=False, period="train")
 
         for epoch in range(1, self.cfg.models.hyperparameters.epochs + 1):
             # TODO: Loop through basins
             log.info(f"Epoch #: {epoch}/{self.cfg.models.hyperparameters.epochs}")
+            self.initialize_record()
             self.loss_record[epoch - 1] = self.train_one_epoch()
             self.save_weights_and_optimizer(epoch)
-            self.validate_loss_record[epoch - 1] = self.validate()
+            if epoch % self.cfg.models.hyperparameters.validate_every == 0:
+                self.loss_record_validate[epoch - 1], _ = self.validate()
             self.current_epoch += 1
+
+    def initialize_record(self):
+        self.loss_record = np.zeros(self.cfg.models.hyperparameters.epochs)
+        self.loss_record_validate = np.zeros(self.cfg.models.hyperparameters.epochs)
+        self.Cgw_train = np.empty(
+            [self.train_data.num_basins, self.train_data.n_timesteps]
+        )
+        self.satdk_train = np.empty(
+            [self.train_data.num_basins, self.train_data.n_timesteps]
+        )
+        self.Cgw_validate = np.empty(
+            [self.train_data.num_basins, self.validate_data.n_timesteps]
+        )
+        self.satdk_validate = np.empty(
+            [self.train_data.num_basins, self.validate_data.n_timesteps]
+        )
 
     def train_one_epoch(self):
         """
@@ -157,7 +161,7 @@ class DifferentiableCFE(BaseAgent):
         self.model.initialize()
 
         # Run model
-        y_hat = self.run_model(run_mlp=True)
+        y_hat = self.run_model(run_mlp=True, period="train")
 
         # Run the following to get a visual image of tesnors
         #######
@@ -167,32 +171,47 @@ class DifferentiableCFE(BaseAgent):
         #######
 
         # Calculate the loss
-        loss = self.evaluate(y_hat, self.train_data.y)
+        loss = self.evaluate(
+            y_hat, self.train_data.y, self.Cgw_train, self.satdk_train, "train"
+        )
 
         return loss
 
-    def run_model(self, run_mlp=False):
+    def run_model(self, run_mlp=False, period="train"):
+        if period == "train":
+            n_timesteps = self.train_data.n_timesteps
+            num_basins = self.train_data.num_basins
+            dataloader = self.train_data_loader
+        elif period == "validate":
+            n_timesteps = self.validate_data.n_timesteps
+            num_basins = self.validate_data.num_basins
+            dataloader = self.validate_data_loader
+
         # initialize
         y_hat = torch.empty(
-            [self.train_data.num_basins, self.train_data.n_timesteps],
+            [num_basins, n_timesteps],
             device=self.cfg.device,
         )
         y_hat.fill_(float("nan"))
 
         # Run CFE at each timestep
-        for t, (x, y_t) in enumerate(
-            tqdm(self.train_data_loader, desc="Processing data")
-        ):
+        for t, (x, y_t) in enumerate(tqdm(dataloader, desc=period)):
             if run_mlp:
-                self.model.mlp_forward(t)  # Instead
-                self.Cgw_record[:, t] = self.model.Cgw.detach().numpy()
-                self.satdk_record[:, t] = self.model.satdk.detach().numpy()
+                self.model.mlp_forward(t, period)  # Instead
+                if period == "train":
+                    self.Cgw_train[:, t] = self.model.Cgw.detach().numpy()
+                    self.satdk_train[:, t] = self.model.satdk.detach().numpy()
+                elif period == "validate":
+                    self.Cgw_validate[:, t] = self.model.Cgw.detach().numpy()
+                    self.satdk_validate[:, t] = self.model.satdk.detach().numpy()
             runoff = self.model(x, t)
             y_hat[:, t] = runoff
 
         return y_hat
 
-    def evaluate(self, y_hat_: Tensor, y_t_: Tensor) -> None:
+    def evaluate(
+        self, y_hat_: Tensor, y_t_: Tensor, Cgw_record, satdk_record, period
+    ) -> None:
         """
         One cycle of model validation
         This function calculates the loss for the given predicted and actual values,
@@ -216,13 +235,15 @@ class DifferentiableCFE(BaseAgent):
         # Evaluate
         kge = he.evaluator(he.kge, y_hat_np[0], y_t_np[0])
         log.info(
-            f"trained KGE for the basin {self.train_data.basin_ids[0]}: {float(kge[0]):.4}"
+            f"trained KGE for the basin {self.train_data.basin_ids[0]}: {float(kge[0]):.8}"
         )
 
         self.save_result(
             y_hat=y_hat_np,
             y_t=y_t_np,
-            out_filename=f"epoch{self.current_epoch+1}",
+            Cgw_record=Cgw_record,
+            satdk_record=satdk_record,
+            out_filename=f"epoch{self.current_epoch+1}_{period}",
             plot_figure=False,
         )
 
@@ -234,27 +255,30 @@ class DifferentiableCFE(BaseAgent):
             print("y_t and y_hat shape not matching")
 
         print("calculate loss")
+        # TODO: try different loss for the validation
         loss = self.criterion(y_hat_dropped, y_t_dropped)
-        log.info(f"loss at epoch {self.current_epoch+1}: {loss:.6f}")
+        log.info(f"loss at epoch {self.current_epoch+1} ({period}): {loss:.8f}")
 
-        # Backpropagate the error
-        start = time.perf_counter()
-        print("Loss backward starts")
-        loss.backward()
-        print("Loss backward ends")
-        end = time.perf_counter()
+        if period == "train":
+            # Backpropagate the error
+            start = time.perf_counter()
+            print("Loss backward starts")
+            loss.backward()
+            print("Loss backward ends")
+            end = time.perf_counter()
 
-        # Log the time taken for backpropagation and the calculated loss
-        log.debug(f"Back prop took : {(end - start):.6f} seconds")
-        log.debug(f"Loss: {loss}")
+            # Log the time taken for backpropagation and the calculated loss
+            log.debug(f"Back prop took : {(end - start):.6f} seconds")
+            log.debug(f"Loss: {loss}")
 
-        # Update the model parameters
-        self.model.print()
-        print("Start optimizer")
-        self.optimizer.step()
-        print("End optimizer")
-        self.scheduler.step()
-        print("Current Learning Rate:", self.optimizer.param_groups[0]["lr"])
+            # Update the model parameters
+            self.model.print()
+            print("Start optimizer")
+            self.optimizer.step()
+            print("End optimizer")
+            self.scheduler.step()
+            print("Current Learning Rate:", self.optimizer.param_groups[0]["lr"])
+
         return loss
 
     def save_weights_and_optimizer(self, epoch: int):
@@ -267,45 +291,71 @@ class DifferentiableCFE(BaseAgent):
         torch.save(self.optimizer.state_dict(), str(optimizer_path))
 
     def validate(self):
-        # with torch.no_grad():
-        None
+        with torch.no_grad():
+            y_hat = self.run_model(run_mlp=True, period="validate")
+        loss = self.evaluate(
+            y_hat,
+            self.validate_data.y,
+            self.Cgw_validate,
+            self.satdk_validate,
+            "validate",
+        )
+
+        return loss, y_hat
 
     def finalize(self):
         """
         Finalizes all the operations of the 2 Main classes of the process, the operator and the data loader
         :return:
         """
-
         try:
-            # Get the final training
-            self.model.cfe_instance.reset_volume_tracking()
-            self.model.cfe_instance.reset_flux_and_states()
-
-            # Run one last time
-            y_hat = self.run_model(run_mlp=False)
-
-            y_hat_ = y_hat.detach().numpy()
-            y_t_ = self.train_data.y.detach().numpy()
-
-            self.save_result(
-                y_hat=y_hat_,
-                y_t=y_t_,
-                out_filename="final_result",
-                plot_figure=True,
-            )
-
-            print(self.model.finalize())
-
+            self._finalize_process("train")
+            self._finalize_process("validate")
+            self._save_loss()
         except:
             raise NotImplementedError
 
-        # Save the loss
-        self.save_loss()
+    def _finalize_process(self, period):
+        # __________________________________________________
+        # Get the final training
+        self.model.cfe_instance.reset_volume_tracking()
+        self.model.cfe_instance.reset_flux_and_states()
 
-    def save_loss(self):
-        df = pd.DataFrame(self.loss_record)
-        file_path = os.path.join(self.output_dir, f"final_result_loss.csv")
-        df.to_csv(file_path)
+        # Run one last time
+        if period == "train":
+            y_hat_ = self.run_model(run_mlp=False, period="train")
+            y_t_ = self.train_data.y
+            Cgw_record = self.Cgw_train
+            satdk_record = self.satdk_train
+        elif period == "validate":
+            _, y_hat_ = self.validate()
+            y_t_ = self.validate_data.y
+            Cgw_record = self.Cgw_validate
+            satdk_record = self.satdk_validate
+
+        y_hat = y_hat_.detach().numpy()
+        y_t = y_t_.detach().numpy()
+
+        self.save_result(
+            y_hat=y_hat,
+            y_t=y_t,
+            Cgw_record=Cgw_record,
+            satdk_record=satdk_record,
+            out_filename=f"final_result_{period}",
+            plot_figure=True,
+        )
+
+        if period == "validate":
+            print(self.model.finalize())
+
+    def _save_loss(self):
+        for period, loss_record in [
+            ("train", self.loss_record),
+            ("validate", self.loss_record_validate),
+        ]:
+            df = pd.DataFrame(loss_record)
+            file_path = os.path.join(self.output_dir, f"final_result_loss_{period}.csv")
+            df.to_csv(file_path)
 
         fig, axes = plt.subplots()
         # Create the x-axis values
@@ -313,13 +363,15 @@ class DifferentiableCFE(BaseAgent):
 
         # Plotting
         fig, axes = plt.subplots()
-        axes.plot(epoch_list, self.loss_record, "-")
+        axes.plot(epoch_list, self.loss_record, "-", label="training (MSE)")
+        axes.plot(epoch_list, self.loss_record_validate, "--", label="validation (MSE)")
         axes.set_title(
             f"Initial learning rate: {self.cfg.models.hyperparameters.learning_rate}"
         )
         axes.set_ylabel("loss")
         axes.set_xlabel("epoch")
         fig.tight_layout()
+        plt.legend()
         plt.savefig(os.path.join(self.output_dir, f"final_result_loss.png"))
         plt.close()
 
@@ -340,7 +392,9 @@ class DifferentiableCFE(BaseAgent):
         """
         raise NotImplementedError
 
-    def save_result(self, y_hat, y_t, out_filename, plot_figure=False):
+    def save_result(
+        self, y_hat, y_t, Cgw_record, satdk_record, out_filename, plot_figure=False
+    ):
         # Save all basin runs
 
         warmup = self.cfg.models.hyperparameters.warmup
@@ -350,8 +404,8 @@ class DifferentiableCFE(BaseAgent):
             data = {
                 "y_hat": y_hat[i, warmup:].squeeze(),
                 "y_t": y_t[i, warmup:].squeeze(),
-                "Cgw": self.Cgw_record[i, warmup:],
-                "satdk": self.satdk_record[i, warmup:],
+                "Cgw": Cgw_record[i, warmup:],
+                "satdk": satdk_record[i, warmup:],
             }
             df = pd.DataFrame(data)
             df.to_csv(
