@@ -37,7 +37,9 @@ log = logging.getLogger("models.dCFE")
 
 
 class dCFE(nn.Module):
-    def __init__(self, cfg: DictConfig, TrainData, ValidateData) -> None:
+    def __init__(
+        self, cfg: DictConfig, TrainData=None, ValidateData=None, TestData=None
+    ) -> None:
         """
         :param cfg:
         """
@@ -45,17 +47,23 @@ class dCFE(nn.Module):
         self.cfg = cfg
 
         # Set up MLP instance
-        self.normalized_c_train = normalization(
-            TrainData.c, TrainData.min_c, TrainData.max_c
-        )
-        # TODO: normalized based on training data
-        self.normalized_c_validate = normalization(
-            ValidateData.c, ValidateData.min_c, ValidateData.max_c
-        )
         self.MLP = MLP(self.cfg)
 
-        self.data = TrainData
-        self.data_validate = ValidateData
+        if (cfg.run_type == "ML") | (cfg.run_type == "ML_synthetic"):
+            # Get c
+            self.normalized_c_train = normalization(
+                TrainData.c, TrainData.min_c, TrainData.max_c
+            )
+            # TODO: normalized based on training data
+            self.normalized_c_validate = normalization(
+                ValidateData.c, ValidateData.min_c, ValidateData.max_c
+            )
+
+            self.data = TrainData
+            self.data_validate = ValidateData
+
+        elif cfg.run_type == "ML_test":
+            self.data = TestData
 
         # Initialize the CFE model
         self.Cgw = torch.ones(self.data.num_basins) * self.cfg.models.initial_params.Cgw
@@ -83,7 +91,8 @@ class dCFE(nn.Module):
     def reset_instance_attributes(self):
         self.cfe_instance.Cgw = self.Cgw.detach()
         self.cfe_instance.satdk = self.satdk.detach()
-        self.normalized_c_train = self.normalized_c_train.detach()
+        if (self.cfg.run_type == "ML") | (self.cfg.run_type == "ML_synthetic"):
+            self.normalized_c_train = self.normalized_c_train.detach()
 
     def forward(self, x, t):  # -> (Tensor, Tensor):
         """

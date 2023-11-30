@@ -5,6 +5,7 @@ import time
 
 from agents.DifferentiableCFE import DifferentiableCFE
 from agents.SyntheticAgent import SyntheticAgent
+from agents.TestingAgent import TestingAgent
 
 log = logging.getLogger(__name__)
 

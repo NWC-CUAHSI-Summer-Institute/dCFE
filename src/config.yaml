@@ -12,7 +12,7 @@ num_processes: 1
 
 
 ################## CHANGE HERE #######################
-run_type: ML # Choose from: "generate_synthetic", "ML", "ML_synthetic", "ML_test"
+run_type: ML_test # Choose from: "generate_synthetic", "ML", "ML_synthetic", "ML_test"
 # ML: training & validating ML against observed data
 # ML_synthetic: training & validating ML against synthetic data
 # generate_synthetic: generate synthetic data for ML_synthetic

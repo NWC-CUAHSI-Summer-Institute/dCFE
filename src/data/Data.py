@@ -52,10 +52,10 @@ class Data(Dataset):
 
         self.basin_attributes = self.get_static_attributes(cfg)
 
-        if (cfg.run_type == "ML") | (cfg.run_type == "generate_synthetic"):
-            self.y = self.get_observations(cfg)
-        elif cfg.run_type == "ML_synthetic_test":
+        if cfg.run_type == "ML_synthetic_test":
             self.y = self.get_synthetic(cfg)
+        else:
+            self.y = self.get_observations(cfg)
 
         self.params = self.get_cfe_params(cfg)
 

@@ -4,6 +4,7 @@ import time
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from datetime import datetime
 import hydroeval as he
 import os
@@ -29,28 +30,49 @@ log = logging.getLogger("agents.DifferentiableCFE")
 class TestingAgent:
     def __init__(self, cfg: DictConfig) -> None:
         self.cfg = cfg
-        self.output_dir = self.create_output_dir()
+
+        # Read model states
+        self.epoch = self.cfg.test.epoch_to_use
+        model_path = os.path.join(cfg.test.input_dir, f"model_epoch{self.epoch:03d}.pt")
+        model_state_dict = torch.load(model_path)
+        self.output_dir = (
+            cfg.test.input_dir
+        )  # Output testing results to the same directory
 
         # Read testing data
         self.test_data = Data(self.cfg, "test")
         self.test_data_loader = DataLoader(self.test_data, batch_size=1, shuffle=False)
 
-        # Read model states
-        model_path = os.path.join(
-            cfg.test.input_dir, f"model_epoch{self.test.epoch_to_use:03d}.pt"
-        )
-        model_state_dict = torch.load(model_path)
-
         # Instantiate the dCFE model
-        self.trained_model = dCFE(self.cfg, TrainData=None, ValidateData=None)
+        self.trained_model = dCFE(self.cfg, TestData=self.test_data)
         self.trained_model.load_state_dict(model_state_dict)
         self.trained_model.eval()
 
     def run(self):
+        print("Initializing CFE state")
+        self.initialize()
+
+        print("Testing run")
+        y_hat_, Cgw_test, satdk_test = self.forward(
+            self.test_data, self.trained_model, run_mlp=True
+        )
+
+        y_hat = y_hat_.detach().numpy()
+
+        self.save_result(
+            y_hat,
+            self.test_data.y,
+            Cgw_test,
+            satdk_test,
+            f"final_result_test_epoch{self.epoch}",
+            True,
+        )
+
+    def initialize(self):
         self.trained_model.initialize()
-        self.forward(self.test_data, self.trained_model, run_mlp=False)
-        y_hat = self.forward(self.test_data, self.trained_model, run_mlp=True)
-        self.plot_hydrograph(y_hat)
+        self.forward(
+            self.test_data, self.trained_model, run_mlp=False
+        )  # Run CFE once to get state variables
 
     def forward(self, data, model, run_mlp=False):
         n_timesteps = data.n_timesteps
@@ -64,65 +86,89 @@ class TestingAgent:
         )
         y_hat.fill_(float("nan"))
 
+        Cgw_test = np.empty([num_basins, n_timesteps])
+        satdk_test = np.empty([num_basins, n_timesteps])
+
         test_normalized_c = normalization(data.c, data.min_c, data.max_c)
+
         # Run CFE at each timestep
         for t, (x, _) in enumerate(tqdm(dataloader, desc="test")):
             if run_mlp:
-                self.model.mlp_forward(t, "test", test_normalized_c)
-                self.Cgw_validate[:, t] = self.model.Cgw.detach().numpy()
-                self.satdk_validate[:, t] = self.model.satdk.detach().numpy()
-            runoff = self.model(x, t)
+                model.mlp_forward(t, "test", test_normalized_c)
+                Cgw_test[:, t] = model.Cgw.detach().numpy()
+                satdk_test[:, t] = model.satdk.detach().numpy()
+            runoff = model(x, t)
             y_hat[:, t] = runoff
 
-        return y_hat
+        return y_hat, Cgw_test, satdk_test
 
     def finalize(self):
         None
 
-    def plot_hydrograph(self):
-        None
+    def save_result(
+        self, y_hat, y_t, Cgw_record, satdk_record, out_filename, plot_figure=False
+    ):
+        warmup = self.cfg.models.hyperparameters.warmup
 
+        for i, basin_id in enumerate(self.test_data.basin_ids):
+            # Save the timeseries of runoff and the best dynamic parametersers
+            data = {
+                "y_hat": y_hat[i, warmup:].squeeze(),
+                "y_t": y_t[i, warmup:].squeeze(),
+                "Cgw": Cgw_record[i, warmup:],
+                "satdk": satdk_record[i, warmup:],
+            }
+            df = pd.DataFrame(data)
+            df.to_csv(
+                os.path.join(self.output_dir, f"{out_filename}_{basin_id}.csv"),
+                index=False,
+            )
 
-"""
-import torch
-import numpy as np
-from omegaconf import OmegaConf
-from models.dCFE import dCFE
+            if plot_figure:
+                time_range = pd.date_range(
+                    self.test_data.start_time, self.test_data.end_time, freq="H"
+                )
 
-# Load the saved model
-model_path = "path_to_your_saved_model.pt"  # Replace with the actual path
-model_state_dict = torch.load(model_path)
+                eval_metrics = he.evaluator(he.kge, y_hat[i], y_t[i])[0]
 
-# Create a configuration dictionary
-config_path = "path_to_your_config_file.yaml"  # Replace with the actual path
-config = OmegaConf.load(config_path)
+                fig, axes = plt.subplots(figsize=(5, 5))
+                if self.cfg.run_type == "ML_synthetic_test":
+                    eval_label = "evaluation (synthetic)"
+                else:
+                    eval_label = "observed"
 
-# Instantiate the dCFE model
-model = dCFE(config, TrainData=None, ValidateData=None)
-model.load_state_dict(model_state_dict)
-model.eval()
+                axes.plot(
+                    time_range[warmup:],
+                    y_t[i, warmup:],
+                    "-",
+                    label=eval_label,
+                    alpha=0.5,
+                )
+                axes.plot(
+                    time_range[warmup:],
+                    y_hat[i, warmup:],
+                    "--",
+                    label="predicted",
+                    alpha=0.5,
+                )
+                axes.set_xlabel("Time")  # Replace with your actual x-axis label
+                axes.set_ylabel("Flow [mm/hr]")  # Replace with your actual y-axis label
+                axes.set_title(
+                    f"Test period - {self.cfg.soil_scheme} soil scheme \n (KGE={float(eval_metrics):.2})"
+                )
 
-# Prepare input data for testing
-# You should prepare your own test input data (precipitation and PET)
-# For example, create a tensor 'input_data' of shape (batch_size, sequence_length, 2)
-# where the last dimension contains precipitation and PET values.
+                # Rotate date labels for better readability
+                plt.setp(axes.xaxis.get_majorticklabels(), rotation=45, ha="right")
 
-# Convert input data to PyTorch tensor if it's not already
-input_data = torch.tensor(input_data)
+                # Improve spacing between date labels
+                axes.xaxis.set_major_locator(mdates.AutoDateLocator())
 
-# Run the model on the input data
-with torch.no_grad():
-    output = model(input_data)
+                # Set formatter for date labels
+                axes.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
 
-# Post-process the output as needed
-# 'output' contains the model's predictions for runoff
-
-# Example post-processing:
-# Convert the output from mm/h to your desired units
-output = output.numpy()  # Convert to NumPy array if needed
-output = (
-    output * conversion_factor
-)  # Replace 'conversion_factor' with your desired conversion
-
-# Now 'output' contains the model's predictions for runoff in your desired units
-"""
+                plt.legend()
+                plt.tight_layout()
+                plt.savefig(
+                    os.path.join(self.output_dir, f"{out_filename}_{basin_id}.png")
+                )
+                plt.close()

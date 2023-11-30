@@ -4,6 +4,7 @@ import time
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from datetime import datetime
 import hydroeval as he
 import os
@@ -243,7 +244,8 @@ class DifferentiableCFE(BaseAgent):
             y_t=y_t_np,
             Cgw_record=Cgw_record,
             satdk_record=satdk_record,
-            out_filename=f"epoch{self.current_epoch+1}_{period}",
+            out_filename=f"epoch{self.current_epoch+1}",
+            period=period,
             plot_figure=False,
         )
 
@@ -393,7 +395,14 @@ class DifferentiableCFE(BaseAgent):
         raise NotImplementedError
 
     def save_result(
-        self, y_hat, y_t, Cgw_record, satdk_record, out_filename, plot_figure=False
+        self,
+        y_hat,
+        y_t,
+        Cgw_record,
+        satdk_record,
+        out_filename,
+        period,
+        plot_figure=False,
     ):
         # Save all basin runs
 
@@ -409,9 +418,19 @@ class DifferentiableCFE(BaseAgent):
             }
             df = pd.DataFrame(data)
             df.to_csv(
-                os.path.join(self.output_dir, f"{out_filename}_{basin_id}.csv"),
+                os.path.join(
+                    self.output_dir, f"{out_filename}_{period}_{basin_id}.csv"
+                ),
                 index=False,
             )
+
+            if period == "train":
+                start_time = self.train_data.start_time
+                end_time = self.train_data.end_time
+            elif period == "validate":
+                start_time = self.validate_data.start_time
+                end_time = self.validate_data.end_time
+            time_range = pd.date_range(start_time, end_time, freq="H")
 
             if plot_figure:
                 # Plot
@@ -421,11 +440,38 @@ class DifferentiableCFE(BaseAgent):
                     eval_label = "evaluation (synthetic)"
                 elif self.cfg.run_type == "ML":
                     eval_label = "observed"
-                axes.plot(y_t[i, warmup:], "-", label=eval_label, alpha=0.5)
-                axes.plot(y_hat[i, warmup:], "--", label="predicted", alpha=0.5)
-                axes.set_title(f"Classic (KGE={float(eval_metrics):.2})")
+                axes.plot(
+                    time_range[warmup:],
+                    y_t[i, warmup:],
+                    "-",
+                    label=eval_label,
+                    alpha=0.5,
+                )
+                axes.plot(
+                    time_range[warmup:],
+                    y_hat[i, warmup:],
+                    "--",
+                    label="predicted",
+                    alpha=0.5,
+                )
+                axes.set_title(
+                    f"{period} period - {self.cfg.soil_scheme} soil scheme \n (KGE={float(eval_metrics):.2})"
+                )
+
+                # Rotate date labels for better readability
+                plt.setp(axes.xaxis.get_majorticklabels(), rotation=45, ha="right")
+
+                # Improve spacing between date labels
+                axes.xaxis.set_major_locator(mdates.AutoDateLocator())
+
+                # Set formatter for date labels
+                axes.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+
                 plt.legend()
+                plt.tight_layout()
                 plt.savefig(
-                    os.path.join(self.output_dir, f"{out_filename}_{basin_id}.png")
+                    os.path.join(
+                        self.output_dir, f"{out_filename}_{period}_{basin_id}.png"
+                    )
                 )
                 plt.close()
