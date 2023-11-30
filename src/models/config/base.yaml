@@ -1,6 +1,6 @@
 hyperparameters:
-  epochs: 3 #1000 #50
-  learning_rate: 0.1 # 1.0e-2 #0.1 # 0.001
+  epochs: 30 #1000 #50
+  learning_rate: 1.0e-02 # 1.0e-2 #0.1 # 0.001
   warmup: 2000
   step_size: 1
   gamma: 0.92
