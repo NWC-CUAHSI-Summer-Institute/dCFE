@@ -45,12 +45,14 @@ class Data(Dataset):
         # Read in data
         self.x = self.get_forcings(cfg)
 
+        # Get dynamic attributes
         # self.c = self.get_dynamic_attributes(cfg) # This use NLDAS attributes that are NOT used for forcing calculation
         self.c, self.min_c, self.max_c = self.get_forcing_as_attributes(
             cfg
         )  # This use NLDAS attributes that are used as forcing
 
-        self.basin_attributes = self.get_static_attributes(cfg)
+        # Stattic attributes
+        # self.basin_attributes = self.get_static_attributes(cfg)
 
         if cfg.run_type == "ML_synthetic_test":
             self.y = self.get_synthetic(cfg)

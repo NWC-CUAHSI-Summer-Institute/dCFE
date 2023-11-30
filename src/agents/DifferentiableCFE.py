@@ -236,7 +236,7 @@ class DifferentiableCFE(BaseAgent):
         # Evaluate
         kge = he.evaluator(he.kge, y_hat_np[0], y_t_np[0])
         log.info(
-            f"trained KGE for the basin {self.train_data.basin_ids[0]}: {float(kge[0]):.8}"
+            f"KGE for the basin {self.train_data.basin_ids[0]} ({period}): {float(kge[0]):.8}"
         )
 
         self.save_result(
@@ -343,7 +343,8 @@ class DifferentiableCFE(BaseAgent):
             y_t=y_t,
             Cgw_record=Cgw_record,
             satdk_record=satdk_record,
-            out_filename=f"final_result_{period}",
+            period=period,
+            out_filename=f"final_result",
             plot_figure=True,
         )
 

@@ -92,9 +92,10 @@ class TestingAgent:
         # Run CFE at each timestep
         for t, (x, _) in enumerate(tqdm(dataloader, desc="test")):
             if run_mlp:
-                model.mlp_forward(t, "test")
-                Cgw_test[:, t] = model.Cgw.detach().numpy()
-                satdk_test[:, t] = model.satdk.detach().numpy()
+                with torch.no_grad():
+                    model.mlp_forward(t, "test")
+                    Cgw_test[:, t] = model.Cgw.detach().numpy()
+                    satdk_test[:, t] = model.satdk.detach().numpy()
             runoff = model(x, t)
             y_hat[:, t] = runoff
 
