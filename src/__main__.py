@@ -20,11 +20,13 @@ def main(cfg: DictConfig) -> None:
     log.info(f"{cfg.run_type}")
 
     # For running ML against observed data ("ML") or synthetic data ("ML_synthetic_test")
-    if (cfg.run_type == "ML") | (cfg.run_type == "ML_synthetic_test"):
+    if (cfg.run_type == "ML") | (cfg.run_type == "ML_synthetic"):
         agent = DifferentiableCFE(cfg)
     # For generating synthetic timesreies
     elif cfg.run_type == "generate_synthetic":
         agent = SyntheticAgent(cfg)
+    elif cfg.run_type == "ML_test":
+        agent = TestingAgent(cfg)
 
     agent.run()
     agent.finalize()

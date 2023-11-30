@@ -122,7 +122,7 @@ class dCFE(nn.Module):
         # log.info(f"Cgw at timestep 0: {self.Cgw.tolist()[0][0]:.6f}")
         # log.info(f"satdk at timestep 0: {self.satdk.tolist()[0][0]:.6f}")
 
-    def mlp_forward(self, t, period) -> None:
+    def mlp_forward(self, t, period, test_normalized_c=None) -> None:
         """
         A function to run MLP(). It sets the parameter values used within MC
         """
@@ -131,6 +131,8 @@ class dCFE(nn.Module):
             normalized_c = self.normalized_c_train
         elif period == "validate":
             normalized_c = self.normalized_c_validate
+        elif period == "test":
+            normalized_c = test_normalized_c
 
         lag_hrs = self.cfg.models.mlp.lag_hrs
 

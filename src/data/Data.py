@@ -114,6 +114,8 @@ class Data(Dataset):
             x_tr = x_.transpose(0, 1)
             output_tensor[i] = x_tr
 
+        # TODO: Get historical max min as scaling metrics
+
         return output_tensor
 
     def get_observations(self, cfg: DictConfig):
