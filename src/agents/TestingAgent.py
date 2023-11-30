@@ -31,19 +31,19 @@ class TestingAgent:
     def __init__(self, cfg: DictConfig) -> None:
         self.cfg = cfg
 
-        # Read model states
-        self.epoch = self.cfg.test.epoch_to_use
-        model_path = os.path.join(cfg.test.input_dir, f"model_epoch{self.epoch:03d}.pt")
-        model_state_dict = torch.load(model_path)
-        self.output_dir = (
-            cfg.test.input_dir
-        )  # Output testing results to the same directory
+        # Output testing results to the same directory
+        self.output_dir = cfg.test.input_dir
 
         # Read testing data
         self.test_data = Data(self.cfg, "test")
         self.test_data_loader = DataLoader(self.test_data, batch_size=1, shuffle=False)
 
-        # Instantiate the dCFE model
+        # Read model states
+        self.epoch = self.cfg.test.epoch_to_use
+        model_path = os.path.join(cfg.test.input_dir, f"model_epoch{self.epoch:03d}.pt")
+        model_state_dict = torch.load(model_path)
+
+        # Instantiate the dCFE model with the saved states
         self.trained_model = dCFE(self.cfg, TestData=self.test_data)
         self.trained_model.load_state_dict(model_state_dict)
         self.trained_model.eval()
@@ -51,12 +51,14 @@ class TestingAgent:
     def run(self):
         print("Initializing CFE state")
         self.initialize()
+        # If the parameter needs to be updated (the testing run is done on different basin), overwrite the train_model here?
 
         print("Testing run")
         y_hat_, Cgw_test, satdk_test = self.forward(
             self.test_data, self.trained_model, run_mlp=True
         )
 
+        # Save results
         y_hat = y_hat_.detach().numpy()
 
         self.save_result(
@@ -70,9 +72,8 @@ class TestingAgent:
 
     def initialize(self):
         self.trained_model.initialize()
-        self.forward(
-            self.test_data, self.trained_model, run_mlp=False
-        )  # Run CFE once to get state variables
+        # Run CFE once to get state variables
+        self.forward(self.test_data, self.trained_model, run_mlp=False)
 
     def forward(self, data, model, run_mlp=False):
         n_timesteps = data.n_timesteps
@@ -85,16 +86,13 @@ class TestingAgent:
             device=self.cfg.device,
         )
         y_hat.fill_(float("nan"))
-
         Cgw_test = np.empty([num_basins, n_timesteps])
         satdk_test = np.empty([num_basins, n_timesteps])
-
-        test_normalized_c = normalization(data.c, data.min_c, data.max_c)
 
         # Run CFE at each timestep
         for t, (x, _) in enumerate(tqdm(dataloader, desc="test")):
             if run_mlp:
-                model.mlp_forward(t, "test", test_normalized_c)
+                model.mlp_forward(t, "test")
                 Cgw_test[:, t] = model.Cgw.detach().numpy()
                 satdk_test[:, t] = model.satdk.detach().numpy()
             runoff = model(x, t)

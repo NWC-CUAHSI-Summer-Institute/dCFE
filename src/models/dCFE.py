@@ -64,6 +64,9 @@ class dCFE(nn.Module):
 
         elif cfg.run_type == "ML_test":
             self.data = TestData
+            self.normalized_c_test = normalization(
+                TestData.c, TestData.min_c, TestData.max_c
+            )
 
         # Initialize the CFE model
         self.Cgw = torch.ones(self.data.num_basins) * self.cfg.models.initial_params.Cgw
@@ -135,7 +138,7 @@ class dCFE(nn.Module):
         # log.info(f"Cgw at timestep 0: {self.Cgw.tolist()[0][0]:.6f}")
         # log.info(f"satdk at timestep 0: {self.satdk.tolist()[0][0]:.6f}")
 
-    def mlp_forward(self, t, period, test_normalized_c=None) -> None:
+    def mlp_forward(self, t, period) -> None:
         """
         A function to run MLP(). It sets the parameter values used within MC
         """
@@ -145,7 +148,7 @@ class dCFE(nn.Module):
         elif period == "validate":
             normalized_c = self.normalized_c_validate
         elif period == "test":
-            normalized_c = test_normalized_c
+            normalized_c = self.normalized_c_test
 
         lag_hrs = self.cfg.models.mlp.lag_hrs
 
