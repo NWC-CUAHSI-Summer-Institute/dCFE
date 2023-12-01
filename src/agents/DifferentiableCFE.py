@@ -173,6 +173,8 @@ class DifferentiableCFE(BaseAgent):
         # a.render("backward_computation_graph")
         #######
 
+        # TODO: After 1 yr, call loss.backwards() and update optimizer, zero my gradients, detach() cfe instances, continue rest of the time
+
         # Calculate the loss
         loss = self.evaluate(
             y_hat, self.train_data.y, self.Cgw_train, self.satdk_train, "train"

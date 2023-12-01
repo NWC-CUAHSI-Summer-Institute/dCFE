@@ -28,8 +28,8 @@ synthetic:
   satdk: 1.0e-04
 
 test:
-  input_dir: ${cwd}\output\2023-11-29_output
-  epoch_to_use: 3
+  input_dir: ${cwd}\output\2023-11-30_output_1430100
+  epoch_to_use: 15
 
 conversions:
   cm_to_mm: 10.0
