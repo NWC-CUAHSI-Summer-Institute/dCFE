@@ -357,3 +357,21 @@ class Data(Dataset):
             stacked_GIUH_ordinates[i].extend([0.0] * additional_zeros)
 
         return stacked_GIUH_ordinates
+
+
+class BatchData(Dataset):
+    def __init__(self, data, start_idx=0, end_idx=None):
+        """
+        Args:
+            data (list or array): List or array of data points.
+            start_idx (int): Starting index of the data to use.
+            end_idx (int): Ending index of the data to use.
+        """
+        self.x = data.x[:, start_idx:end_idx, :]
+
+    def __len__(self):
+        return self.x.shape[1]
+
+    def __getitem__(self, idx):
+        # Assuming each data point is a tuple (input, target)
+        return self.x[:, idx, :]

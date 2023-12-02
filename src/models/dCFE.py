@@ -100,7 +100,7 @@ class dCFE(nn.Module):
     def detach_gradients(self):
         self.cfe_instance.detach_gradients()
 
-    def forward(self, x, t):  # -> (Tensor, Tensor):
+    def forward(self, x):  # -> (Tensor, Tensor):
         """
         The forward function to model runoff through CFE model
         :param x: Precip and PET forcings (m/h)

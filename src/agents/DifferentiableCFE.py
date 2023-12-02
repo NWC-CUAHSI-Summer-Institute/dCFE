@@ -21,7 +21,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from agents.base import BaseAgent
-from data.Data import Data
+from data.Data import Data, BatchData
 from data.metrics import calculate_nse
 from models.dCFE import dCFE
 from utils.ddp_setup import find_free_port, cleanup
@@ -35,13 +35,13 @@ log = logging.getLogger("agents.DifferentiableCFE")
 # self.model is https://github.com/mhpi/differentiable_routing/blob/26dd83852a6ee4094bd9821b2461a7f528efea96/src/graph/models/GNN_baseline.py#L25
 
 
-def custom_collate_fn(batch):
-    # Extract inputs and targets from the batch
-    inputs, targets = zip(*batch)
-    # Convert to PyTorch tensors
-    inputs = torch.tensor(inputs)
-    targets = torch.tensor(targets)
-    return inputs, targets
+# def custom_collate_fn(batch):
+#     # Extract inputs and targets from the batch
+#     inputs, targets = zip(*batch)
+#     # Convert to PyTorch tensors
+#     inputs = torch.tensor(inputs)
+#     targets = torch.tensor(targets)
+#     return inputs, targets
 
 
 class DifferentiableCFE(BaseAgent):
@@ -64,7 +64,7 @@ class DifferentiableCFE(BaseAgent):
         # Defining the torch Dataset and Dataloader
         self.train_data = Data(self.cfg, "train")
         self.train_data_loader = DataLoader(
-            self.train_data, batch_size=1, shuffle=False, collate_fn=custom_collate_fn
+            self.train_data, batch_size=1, shuffle=False
         )
         self.validate_data = Data(self.cfg, "validate")
         self.validate_data_loader = DataLoader(
@@ -146,7 +146,6 @@ class DifferentiableCFE(BaseAgent):
         # Training through epoch
         for epoch in range(1, self.cfg.models.hyperparameters.epochs + 1):
             # TODO: Loop through basins
-            log.info(f"Epoch #: {epoch}/{self.cfg.models.hyperparameters.epochs}")
             self.initialize_record()
             self.loss_record[epoch - 1] = self.train_one_epoch()
             self.save_weights_and_optimizer(epoch)
@@ -166,6 +165,9 @@ class DifferentiableCFE(BaseAgent):
         )
         self.satdk_validate = np.empty(
             [self.train_data.num_basins, self.validate_data.n_timesteps]
+        )
+        self.x_check = np.empty(
+            [self.train_data.num_basins, self.train_data.n_timesteps, 2]
         )
 
     def train_one_epoch(self):
@@ -187,9 +189,10 @@ class DifferentiableCFE(BaseAgent):
             * self.cfg.models.hyperparameters.batch_train_days
         )
 
-        n_trainbatches, _ = divmod(
+        quotient, remainder = divmod(
             self.train_data.n_timesteps, self.timesteps_per_train_batch
         )
+        n_trainbatches = quotient + 1
 
         self.current_train_batch = 0
 
@@ -197,19 +200,32 @@ class DifferentiableCFE(BaseAgent):
 
         # _________________________________________________________________________
         # Evaluate model every batch_train_days
-        for train_batch in n_trainbatches:
+        for train_batch in range(1, n_trainbatches + 1):
+            # _________________________________
+            # Initialization for the next batch
+            self.optimizer.zero_grad()
+            # Deatch the model states and parameters, and gradients (but not resetting the values as model run continues)
+            self.model.detach_gradients()
+
             # _________________________________
             # Get start and end index
-            start_idx = train_batch * self.timesteps_per_train_batch
-            end_idx = (train_batch + 1) * self.timesteps_per_train_batch
+            start_idx = (train_batch - 1) * self.timesteps_per_train_batch
+            if train_batch == n_trainbatches:
+                end_idx = (train_batch - 1) * self.timesteps_per_train_batch + remainder
+            else:
+                end_idx = train_batch * self.timesteps_per_train_batch
 
             # _________________________________
             # Run model
+            log.info(
+                f"Epoch #: {self.current_epoch}/{self.cfg.models.hyperparameters.epochs} --- Batch # {train_batch}/{n_trainbatches}"
+            )
+            log.info(f"")
             _y_hat = self.run_one_batch(start_idx, end_idx)
 
             # _________________________________
             # Calculate the loss
-            if train_batch == 0:
+            if train_batch == 1:
                 consider_warmup = True
             else:
                 consider_warmup = False
@@ -217,15 +233,13 @@ class DifferentiableCFE(BaseAgent):
             y_hat[:, start_idx:end_idx] = _y_hat
             loss = self.evaluate(
                 _y_hat,
-                self.train_data[:, start_idx:end_idx, :],
+                self.train_data.y[:, start_idx:end_idx, :],
                 "train",
                 consider_warmup,
             )
 
             # _________________________________
             # Loss backward and optimizer
-            # After 1 yr, call loss.backwards() and update optimizer, zero my gradients, detach() cfe instances, continue rest of the time
-
             start = time.perf_counter()
             print("Loss backward starts")
             loss.backward()
@@ -244,12 +258,6 @@ class DifferentiableCFE(BaseAgent):
             self.scheduler.step()
             print("Current Learning Rate:", self.optimizer.param_groups[0]["lr"])
 
-            # _________________________________
-            # Initialization for the next batch
-            self.optimizer.zero_grad()
-            # Reset the model states and parameters, and gradients
-            self.model.detach_gradients()
-
         # Calculate loss for the entire record
         loss = self.evaluate(y_hat, self.train_data.y, "train", True)
 
@@ -266,6 +274,7 @@ class DifferentiableCFE(BaseAgent):
         return loss
 
     def run_one_batch(self, start_idx, end_idx):
+        """Run process model with MLP from start_idx to end_idx"""
         # _________________________________
         # initialize
         y_hat = torch.empty(
@@ -274,28 +283,38 @@ class DifferentiableCFE(BaseAgent):
         )
         y_hat.fill_(float("nan"))
 
+        # __________________________________
+        # Get limited dataset
+        batch_data = BatchData(self.train_data, start_idx, end_idx)
+        batch_data_loader = DataLoader(
+            batch_data, batch_size=1, shuffle=False
+        )  # Specify the batch size and other parameters
+
         # _________________________________
         # Run model
-        for t, (x, _) in enumerate(self.data_loader):
-            absolute_timestep = start_idx + t * self.timesteps_per_train_batch
+        for t, x in enumerate(
+            tqdm(batch_data_loader, desc=f"test({start_idx}:{end_idx})")
+        ):
+            absolute_timestep = start_idx + t
             if absolute_timestep >= end_idx:
                 break
 
             # _________________________________
             # Run MLP forward
-            self.model.mlp_forward(absolute_timestep, "test")  # Instead
+            self.model.mlp_forward(absolute_timestep, "train")  # Instead
             self.Cgw_train[:, absolute_timestep] = self.model.Cgw.detach().numpy()
             self.satdk_train[:, absolute_timestep] = self.model.satdk.detach().numpy()
+            self.x_check[:, absolute_timestep] = x
 
             # _________________________________
             # Run process model
-            runoff = self.model(x, absolute_timestep)
+            runoff = self.model(x)
             y_hat[:, t] = runoff
 
         return y_hat
 
     def run_process_model(self, period="train"):
-        """Run process model without running MLP"""
+        """Run process model without MLP"""
         if period == "train":
             n_timesteps = self.train_data.n_timesteps
             num_basins = self.train_data.num_basins
@@ -314,8 +333,8 @@ class DifferentiableCFE(BaseAgent):
 
         # Run CFE at each timestep
         for t, (x, _) in enumerate(tqdm(dataloader, desc=period)):
-            runoff = self.model(x, t)
-            y_hat[:, t] = runoff
+            runoff = self.model(x)
+            y_hat[:, t] = runoff.detach()
 
         return y_hat
 
