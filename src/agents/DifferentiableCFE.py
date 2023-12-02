@@ -218,7 +218,7 @@ class DifferentiableCFE(BaseAgent):
             # _________________________________
             # Run model
             log.info(
-                f"Epoch #: {self.current_epoch}/{self.cfg.models.hyperparameters.epochs} --- Batch # {train_batch}/{n_trainbatches}"
+                f"Epoch #: {self.current_epoch+1}/{self.cfg.models.hyperparameters.epochs} --- Batch # {train_batch}/{n_trainbatches}"
             )
             log.info(f"")
             _y_hat = self.run_one_batch(start_idx, end_idx)

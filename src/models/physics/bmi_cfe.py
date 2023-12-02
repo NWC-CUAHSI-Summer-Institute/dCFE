@@ -494,13 +494,28 @@ class BMI_CFE:
             if torch.is_tensor(param):
                 param = param.detach()
 
-        for param in self.cfe_params["soil_params"].values():
-            if torch.is_tensor(param):
-                param = param.detach()
-
         for var_name in self._output_var_names:
             if var_name in self._values and torch.is_tensor(self._values[var_name]):
                 self._values[var_name] = self._values[var_name].detach()
+
+        # Detach tensors in self.cfe_params
+        if isinstance(self.cfe_params, dict):
+            self.detach_tensors_in_dict(self.cfe_params["soil_params"])
+
+        # Detach tensors in self.soil_reservoir
+        if isinstance(self.soil_reservoir, dict):
+            self.detach_tensors_in_dict(self.soil_reservoir)
+
+        # Detach tensors in self.gw_reservoir
+        if isinstance(self.gw_reservoir, dict):
+            self.detach_tensors_in_dict(self.gw_reservoir)
+
+    def detach_tensors_in_dict(self, dict_obj):
+        for key, value in dict_obj.items():
+            if torch.is_tensor(value):
+                dict_obj[key] = value.detach()
+            elif isinstance(value, dict):  # In case of nested dictionaries
+                self.detach_tensors_in_dict(value)
 
     # __________________________________________________________________________________________________________
     # __________________________________________________________________________________________________________

@@ -15,7 +15,7 @@ json_params_dir: ${data.data_dir}\cat_{}_dds_calibrated.json
 partition_scheme: Schaake # Select from "Xinanjiang" or "Schaake"
 train:
   start_time: '2009-03-01 00:00:00'
-  end_time: '2012-02-28 00:00:00'
+  end_time: '2010-02-28 00:00:00'
 validate:
   start_time: '2012-03-01 00:00:00'
   end_time: '2013-02-28 00:00:00'
