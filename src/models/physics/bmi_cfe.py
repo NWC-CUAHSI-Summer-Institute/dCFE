@@ -474,6 +474,15 @@ class BMI_CFE:
                 Soilcoeff: {self.soil_reservoir['coeff_primary']:.5f}"
             )
 
+    def detach_gradients(self):
+        for param in self.cfe_params.values():
+            if torch.is_tensor(param):
+                param = param.detach()
+
+        for param in self.cfe_params["soil_params"].values():
+            if torch.is_tensor(param):
+                param = param.detach()
+
     # __________________________________________________________________________________________________________
     # __________________________________________________________________________________________________________
     # BMI: Model Control Function

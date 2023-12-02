@@ -22,3 +22,4 @@ validate:
 test:
   start_time: '2013-03-01 00:00:00'
   end_time: '2014-02-28 23:00:00'
+timesteps_per_day: 24

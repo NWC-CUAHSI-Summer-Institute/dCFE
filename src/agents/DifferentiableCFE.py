@@ -35,6 +35,15 @@ log = logging.getLogger("agents.DifferentiableCFE")
 # self.model is https://github.com/mhpi/differentiable_routing/blob/26dd83852a6ee4094bd9821b2461a7f528efea96/src/graph/models/GNN_baseline.py#L25
 
 
+def custom_collate_fn(batch):
+    # Extract inputs and targets from the batch
+    inputs, targets = zip(*batch)
+    # Convert to PyTorch tensors
+    inputs = torch.tensor(inputs)
+    targets = torch.tensor(targets)
+    return inputs, targets
+
+
 class DifferentiableCFE(BaseAgent):
     def __init__(self, cfg: DictConfig) -> None:
         """
@@ -55,7 +64,7 @@ class DifferentiableCFE(BaseAgent):
         # Defining the torch Dataset and Dataloader
         self.train_data = Data(self.cfg, "train")
         self.train_data_loader = DataLoader(
-            self.train_data, batch_size=1, shuffle=False
+            self.train_data, batch_size=1, shuffle=False, collate_fn=custom_collate_fn
         )
         self.validate_data = Data(self.cfg, "validate")
         self.validate_data_loader = DataLoader(
@@ -113,6 +122,10 @@ class DifferentiableCFE(BaseAgent):
         Sets the model to train mode, sets up DistributedDataParallel, and initiates training for the number of epochs
         specified in the configuration.
         """
+
+        # _________________________________________________________________
+        # Initialization
+
         self.model.train()  # this .train() is a function from nn.Module
         # dist.init_process_group(
         #     backend="gloo",
@@ -123,11 +136,14 @@ class DifferentiableCFE(BaseAgent):
         # Create the DDP object with the GLOO backend
         # self.net = DDP(self.model.to(self.cfg.device), device_ids=None)
 
-        # Run process model once to get the internal states
         log.info("Initializing the model")
         self.model.initialize()
-        self.run_model(run_mlp=False, period="train")
+        self.run_process_model(
+            period="train"
+        )  # Run process model once to get the internal states
 
+        # _________________________________________________________________
+        # Training through epoch
         for epoch in range(1, self.cfg.models.hyperparameters.epochs + 1):
             # TODO: Loop through basins
             log.info(f"Epoch #: {epoch}/{self.cfg.models.hyperparameters.epochs}")
@@ -158,115 +174,58 @@ class DifferentiableCFE(BaseAgent):
         :return:
         """
 
-        # Reset
+        # _________________________________________________________________________
+        # Initialization
         self.optimizer.zero_grad()
         # Reset the model states and parameters, and gradients
         self.model.initialize()
 
-        # Run model
-        y_hat = self.run_model(run_mlp=True, period="train")
-
-        # Run the following to get a visual image of tesnors
-        #######
-        # from torchviz import make_dot
-        # a = make_dot(loss, params=self.model.c)
-        # a.render("backward_computation_graph")
-        #######
-
-        # TODO: After 1 yr, call loss.backwards() and update optimizer, zero my gradients, detach() cfe instances, continue rest of the time
-
-        # Calculate the loss
-        loss = self.evaluate(
-            y_hat, self.train_data.y, self.Cgw_train, self.satdk_train, "train"
+        # _________________________________________________________________________
+        # Prepare to evalute model every batch_train_days
+        self.timesteps_per_train_batch = (
+            self.cfg.data.timesteps_per_day
+            * self.cfg.models.hyperparameters.batch_train_days
         )
 
-        return loss
-
-    def run_model(self, run_mlp=False, period="train"):
-        if period == "train":
-            n_timesteps = self.train_data.n_timesteps
-            num_basins = self.train_data.num_basins
-            dataloader = self.train_data_loader
-        elif period == "validate":
-            n_timesteps = self.validate_data.n_timesteps
-            num_basins = self.validate_data.num_basins
-            dataloader = self.validate_data_loader
-
-        # initialize
-        y_hat = torch.empty(
-            [num_basins, n_timesteps],
-            device=self.cfg.device,
-        )
-        y_hat.fill_(float("nan"))
-
-        # Run CFE at each timestep
-        for t, (x, y_t) in enumerate(tqdm(dataloader, desc=period)):
-            if run_mlp:
-                self.model.mlp_forward(t, period)  # Instead
-                if period == "train":
-                    self.Cgw_train[:, t] = self.model.Cgw.detach().numpy()
-                    self.satdk_train[:, t] = self.model.satdk.detach().numpy()
-                elif period == "validate":
-                    self.Cgw_validate[:, t] = self.model.Cgw.detach().numpy()
-                    self.satdk_validate[:, t] = self.model.satdk.detach().numpy()
-            runoff = self.model(x, t)
-            y_hat[:, t] = runoff
-
-        return y_hat
-
-    def evaluate(
-        self, y_hat_: Tensor, y_t_: Tensor, Cgw_record, satdk_record, period
-    ) -> None:
-        """
-        One cycle of model validation
-        This function calculates the loss for the given predicted and actual values,
-        backpropagates the error, and updates the model parameters.
-
-        Parameters:
-        - y_hat_ : The tensor containing predicted values
-        - y_t_ : The tensor containing actual values.
-        """
-
-        # Transform validation/output data for validation
-        y_t_ = y_t_.squeeze(dim=2)
-        warmup = self.cfg.models.hyperparameters.warmup
-        y_hat = y_hat_[:, warmup:]
-        y_t = y_t_[:, warmup:]
-
-        y_hat_np = y_hat_.detach().numpy()
-        y_t_np = y_t_.detach().numpy()
-
-        # Save results
-        # Evaluate
-        kge = he.evaluator(he.kge, y_hat_np[0], y_t_np[0])
-        log.info(
-            f"KGE for the basin {self.train_data.basin_ids[0]} ({period}): {float(kge[0]):.8}"
+        n_trainbatches, _ = divmod(
+            self.train_data.n_timesteps, self.timesteps_per_train_batch
         )
 
-        self.save_result(
-            y_hat=y_hat_np,
-            y_t=y_t_np,
-            Cgw_record=Cgw_record,
-            satdk_record=satdk_record,
-            out_filename=f"epoch{self.current_epoch+1}",
-            period=period,
-            plot_figure=False,
-        )
+        self.current_train_batch = 0
 
-        # Compute the overall loss
-        mask = torch.isnan(y_t)
-        y_t_dropped = y_t[~mask]
-        y_hat_dropped = y_hat[~mask]
-        if y_hat_dropped.shape != y_t_dropped.shape:
-            print("y_t and y_hat shape not matching")
+        y_hat = torch.empty([self.train_data.num_basins, self.train_data.n_timesteps])
 
-        print("calculate loss")
-        # TODO: try different loss for the validation
-        loss = self.criterion(y_hat_dropped, y_t_dropped)
-        log.info(f"loss at epoch {self.current_epoch+1} ({period}): {loss:.8f}")
+        # _________________________________________________________________________
+        # Evaluate model every batch_train_days
+        for train_batch in n_trainbatches:
+            # _________________________________
+            # Get start and end index
+            start_idx = train_batch * self.timesteps_per_train_batch
+            end_idx = (train_batch + 1) * self.timesteps_per_train_batch
 
-        if period == "train":
-            # Backpropagate the error
+            # _________________________________
+            # Run model
+            _y_hat = self.run_one_batch(start_idx, end_idx)
+
+            # _________________________________
+            # Calculate the loss
+            if train_batch == 0:
+                consider_warmup = True
+            else:
+                consider_warmup = False
+
+            y_hat[:, start_idx:end_idx] = _y_hat
+            loss = self.evaluate(
+                _y_hat,
+                self.train_data[:, start_idx:end_idx, :],
+                "train",
+                consider_warmup,
+            )
+
+            # _________________________________
+            # Loss backward and optimizer
+            # After 1 yr, call loss.backwards() and update optimizer, zero my gradients, detach() cfe instances, continue rest of the time
+
             start = time.perf_counter()
             print("Loss backward starts")
             loss.backward()
@@ -285,6 +244,131 @@ class DifferentiableCFE(BaseAgent):
             self.scheduler.step()
             print("Current Learning Rate:", self.optimizer.param_groups[0]["lr"])
 
+            # _________________________________
+            # Initialization for the next batch
+            self.optimizer.zero_grad()
+            # Reset the model states and parameters, and gradients
+            self.model.detach_gradients()
+
+        # Calculate loss for the entire record
+        loss = self.evaluate(y_hat, self.train_data.y, "train", True)
+
+        self.save_result(
+            y_hat=y_hat,
+            y_t=self.train_data.y,
+            Cgw_record=self.Cgw_record,
+            satdk_record=self.satdk_record,
+            out_filename=f"epoch{self.current_epoch+1}",
+            period="test",
+            plot_figure=False,
+        )
+
+        return loss
+
+    def run_one_batch(self, start_idx, end_idx):
+        # _________________________________
+        # initialize
+        y_hat = torch.empty(
+            [self.train_data.num_basins, self.timesteps_per_train_batch],
+            device=self.cfg.device,
+        )
+        y_hat.fill_(float("nan"))
+
+        # _________________________________
+        # Run model
+        for t, (x, _) in enumerate(self.data_loader):
+            absolute_timestep = start_idx + t * self.timesteps_per_train_batch
+            if absolute_timestep >= end_idx:
+                break
+
+            # _________________________________
+            # Run MLP forward
+            self.model.mlp_forward(absolute_timestep, "test")  # Instead
+            self.Cgw_train[:, absolute_timestep] = self.model.Cgw.detach().numpy()
+            self.satdk_train[:, absolute_timestep] = self.model.satdk.detach().numpy()
+
+            # _________________________________
+            # Run process model
+            runoff = self.model(x, absolute_timestep)
+            y_hat[:, t] = runoff
+
+        return y_hat
+
+    def run_process_model(self, period="train"):
+        """Run process model without running MLP"""
+        if period == "train":
+            n_timesteps = self.train_data.n_timesteps
+            num_basins = self.train_data.num_basins
+            dataloader = self.train_data_loader
+        elif period == "validate":
+            n_timesteps = self.validate_data.n_timesteps
+            num_basins = self.validate_data.num_basins
+            dataloader = self.validate_data_loader
+
+        # initialize
+        y_hat = torch.empty(
+            [num_basins, n_timesteps],
+            device=self.cfg.device,
+        )
+        y_hat.fill_(float("nan"))
+
+        # Run CFE at each timestep
+        for t, (x, _) in enumerate(tqdm(dataloader, desc=period)):
+            runoff = self.model(x, t)
+            y_hat[:, t] = runoff
+
+        return y_hat
+
+    def evaluate(
+        self,
+        y_hat_: Tensor,
+        y_t_: Tensor,
+        period,
+        consider_warmup=True,
+    ) -> None:
+        """
+        One cycle of model validation
+        This function calculates the loss for the given predicted and actual values,
+        backpropagates the error, and updates the model parameters.
+
+        Parameters:
+        - y_hat_ : The tensor containing predicted values
+        - y_t_ : The tensor containing actual values.
+        """
+
+        # Transform validation/output data for validation
+        y_t_ = y_t_.squeeze(dim=2)
+
+        if consider_warmup:
+            warmup = self.cfg.models.hyperparameters.warmup
+        else:
+            warmup = 0
+
+        y_hat = y_hat_[:, warmup:]
+        y_t = y_t_[:, warmup:]
+
+        y_hat_np = y_hat_.detach().numpy()
+        y_t_np = y_t_.detach().numpy()
+
+        # Save results
+        # Evaluate
+        kge = he.evaluator(he.kge, y_hat_np[0], y_t_np[0])
+        log.info(
+            f"KGE for the basin {self.train_data.basin_ids[0]} ({period}): {float(kge[0]):.8}"
+        )
+
+        # Compute the overall loss
+        mask = torch.isnan(y_t)
+        y_t_dropped = y_t[~mask]
+        y_hat_dropped = y_hat[~mask]
+        if y_hat_dropped.shape != y_t_dropped.shape:
+            print("y_t and y_hat shape not matching")
+
+        print("calculate loss")
+        # TODO: try different loss for the validation
+        loss = self.criterion(y_hat_dropped, y_t_dropped)
+        log.info(f"loss at epoch {self.current_epoch+1} ({period}): {loss:.8f}")
+
         return loss
 
     def save_weights_and_optimizer(self, epoch: int):
@@ -298,13 +382,12 @@ class DifferentiableCFE(BaseAgent):
 
     def validate(self):
         with torch.no_grad():
-            y_hat = self.run_model(run_mlp=True, period="validate")
+            y_hat = self.run_process_model(period="validate")
         loss = self.evaluate(
             y_hat,
             self.validate_data.y,
-            self.Cgw_validate,
-            self.satdk_validate,
             "validate",
+            True,
         )
 
         return loss, y_hat
@@ -329,7 +412,7 @@ class DifferentiableCFE(BaseAgent):
 
         # Run one last time
         if period == "train":
-            y_hat_ = self.run_model(run_mlp=False, period="train")
+            y_hat_ = self.run_process_model(period="train")
             y_t_ = self.train_data.y
             Cgw_record = self.Cgw_train
             satdk_record = self.satdk_train

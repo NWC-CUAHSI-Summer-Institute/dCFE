@@ -5,6 +5,7 @@ hyperparameters:
   step_size: 1
   gamma: 0.92
   validate_every: 1
+  batch_train_days: 365 # Calculate and run loss.backwards every batch_train_days
 
 mlp:
   hidden_size: 256

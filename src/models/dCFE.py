@@ -97,6 +97,9 @@ class dCFE(nn.Module):
         if (self.cfg.run_type == "ML") | (self.cfg.run_type == "ML_synthetic"):
             self.normalized_c_train = self.normalized_c_train.detach()
 
+    def detach_gradients(self):
+        self.cfe_instance.detach_gradients()
+
     def forward(self, x, t):  # -> (Tensor, Tensor):
         """
         The forward function to model runoff through CFE model
