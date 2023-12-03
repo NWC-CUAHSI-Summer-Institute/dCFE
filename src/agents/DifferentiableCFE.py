@@ -54,13 +54,20 @@ class DifferentiableCFE(BaseAgent):
         """
         super().__init__()
 
+        # _________________________________________________________________________
         self.cfg = cfg
         self.output_dir = self.create_output_dir()
 
         # Setting the cfg object and manual seed for reproducibility
         torch.manual_seed(0)
         torch.set_default_dtype(torch.float64)
+        self.current_epoch = 0
 
+        # Initialize the record
+        self.loss_record = np.zeros(self.cfg.models.hyperparameters.epochs)
+        self.loss_record_validate = np.zeros(self.cfg.models.hyperparameters.epochs)
+
+        # _________________________________________________________________________
         # Defining the torch Dataset and Dataloader
         self.train_data = Data(self.cfg, "train")
         self.train_data_loader = DataLoader(
@@ -71,6 +78,19 @@ class DifferentiableCFE(BaseAgent):
             self.validate_data, batch_size=1, shuffle=False
         )
 
+        # _________________________________________________________________________
+        # Prepare to evalute model every batch_train_days
+        self.timesteps_per_train_batch = (
+            self.cfg.data.timesteps_per_day
+            * self.cfg.models.hyperparameters.batch_train_days
+        )
+
+        quotient, self.last_batch_remainder = divmod(
+            self.train_data.n_timesteps, self.timesteps_per_train_batch
+        )
+        self.n_trainbatches = quotient + 1
+
+        # ___________________________________________________________________________
         # Defining the model
         self.model = dCFE(
             cfg=self.cfg, TrainData=self.train_data, ValidateData=self.validate_data
@@ -81,15 +101,9 @@ class DifferentiableCFE(BaseAgent):
         )
         self.scheduler = StepLR(
             self.optimizer,
-            step_size=cfg.models.hyperparameters.step_size,
+            step_size=(cfg.models.hyperparameters.step_size) * self.n_trainbatches,
             gamma=cfg.models.hyperparameters.gamma,
         )
-
-        self.current_epoch = 0
-
-        # Initialize the record
-        self.loss_record = np.zeros(self.cfg.models.hyperparameters.epochs)
-        self.loss_record_validate = np.zeros(self.cfg.models.hyperparameters.epochs)
 
         # # Prepare for the DDP
         # free_port = find_free_port()
@@ -138,8 +152,8 @@ class DifferentiableCFE(BaseAgent):
 
         log.info("Initializing the model")
         self.model.initialize()
-        self.run_process_model(
-            period="train"
+        self.run_model(
+            period="initialize", run_mlp=False
         )  # Run process model once to get the internal states
 
         # _________________________________________________________________
@@ -182,25 +196,11 @@ class DifferentiableCFE(BaseAgent):
         # Reset the model states and parameters, and gradients
         self.model.initialize()
 
-        # _________________________________________________________________________
-        # Prepare to evalute model every batch_train_days
-        self.timesteps_per_train_batch = (
-            self.cfg.data.timesteps_per_day
-            * self.cfg.models.hyperparameters.batch_train_days
-        )
-
-        quotient, remainder = divmod(
-            self.train_data.n_timesteps, self.timesteps_per_train_batch
-        )
-        n_trainbatches = quotient + 1
-
-        self.current_train_batch = 0
-
         y_hat = torch.empty([self.train_data.num_basins, self.train_data.n_timesteps])
 
         # _________________________________________________________________________
         # Evaluate model every batch_train_days
-        for train_batch in range(1, n_trainbatches + 1):
+        for train_batch in range(1, self.n_trainbatches + 1):
             # _________________________________
             # Initialization for the next batch
             self.optimizer.zero_grad()
@@ -210,17 +210,18 @@ class DifferentiableCFE(BaseAgent):
             # _________________________________
             # Get start and end index
             start_idx = (train_batch - 1) * self.timesteps_per_train_batch
-            if train_batch == n_trainbatches:
-                end_idx = (train_batch - 1) * self.timesteps_per_train_batch + remainder
+            if train_batch == self.n_trainbatches:
+                end_idx = (
+                    train_batch - 1
+                ) * self.timesteps_per_train_batch + self.last_batch_remainder
             else:
                 end_idx = train_batch * self.timesteps_per_train_batch
 
             # _________________________________
             # Run model
             log.info(
-                f"Epoch #: {self.current_epoch+1}/{self.cfg.models.hyperparameters.epochs} --- Batch # {train_batch}/{n_trainbatches}"
+                f"Epoch #: {self.current_epoch+1}/{self.cfg.models.hyperparameters.epochs} --- Batch # {train_batch}/{self.n_trainbatches}"
             )
-            log.info(f"")
             _y_hat = self.run_one_batch(start_idx, end_idx)
 
             # _________________________________
@@ -231,6 +232,10 @@ class DifferentiableCFE(BaseAgent):
                 consider_warmup = False
 
             y_hat[:, start_idx:end_idx] = _y_hat
+
+            log.info(
+                f"At epoch {self.current_epoch+1}/{self.cfg.models.hyperparameters.epochs} --- batch {train_batch}/{self.n_trainbatches} (train)"
+            )
             loss = self.evaluate(
                 _y_hat,
                 self.train_data.y[:, start_idx:end_idx, :],
@@ -259,15 +264,18 @@ class DifferentiableCFE(BaseAgent):
             print("Current Learning Rate:", self.optimizer.param_groups[0]["lr"])
 
         # Calculate loss for the entire record
+        log.info(
+            f"At epoch {self.current_epoch+1}/{self.cfg.models.hyperparameters.epochs} --- throughout the batches (train)"
+        )
         loss = self.evaluate(y_hat, self.train_data.y, "train", True)
 
         self.save_result(
-            y_hat=y_hat,
-            y_t=self.train_data.y,
-            Cgw_record=self.Cgw_record,
-            satdk_record=self.satdk_record,
+            y_hat=y_hat.detach().numpy(),
+            y_t=self.train_data.y.detach().numpy(),
+            Cgw_record=self.Cgw_train,
+            satdk_record=self.satdk_train,
             out_filename=f"epoch{self.current_epoch+1}",
-            period="test",
+            period="train",
             plot_figure=False,
         )
 
@@ -278,7 +286,7 @@ class DifferentiableCFE(BaseAgent):
         # _________________________________
         # initialize
         y_hat = torch.empty(
-            [self.train_data.num_basins, self.timesteps_per_train_batch],
+            [self.train_data.num_basins, (end_idx - start_idx)],
             device=self.cfg.device,
         )
         y_hat.fill_(float("nan"))
@@ -301,7 +309,7 @@ class DifferentiableCFE(BaseAgent):
 
             # _________________________________
             # Run MLP forward
-            self.model.mlp_forward(absolute_timestep, "train")  # Instead
+            self.model.mlp_forward(absolute_timestep, "train")
             self.Cgw_train[:, absolute_timestep] = self.model.Cgw.detach().numpy()
             self.satdk_train[:, absolute_timestep] = self.model.satdk.detach().numpy()
             self.x_check[:, absolute_timestep] = x
@@ -313,9 +321,9 @@ class DifferentiableCFE(BaseAgent):
 
         return y_hat
 
-    def run_process_model(self, period="train"):
-        """Run process model without MLP"""
-        if period == "train":
+    def run_model(self, period="initialize", run_mlp=False):
+        """Run process model with or without MLP"""
+        if (period == "initialize") or (period == "train"):
             n_timesteps = self.train_data.n_timesteps
             num_basins = self.train_data.num_basins
             dataloader = self.train_data_loader
@@ -333,6 +341,8 @@ class DifferentiableCFE(BaseAgent):
 
         # Run CFE at each timestep
         for t, (x, _) in enumerate(tqdm(dataloader, desc=period)):
+            if run_mlp:
+                self.model.mlp_forward(t, "validate")
             runoff = self.model(x)
             y_hat[:, t] = runoff.detach()
 
@@ -372,9 +382,6 @@ class DifferentiableCFE(BaseAgent):
         # Save results
         # Evaluate
         kge = he.evaluator(he.kge, y_hat_np[0], y_t_np[0])
-        log.info(
-            f"KGE for the basin {self.train_data.basin_ids[0]} ({period}): {float(kge[0]):.8}"
-        )
 
         # Compute the overall loss
         mask = torch.isnan(y_t)
@@ -383,10 +390,13 @@ class DifferentiableCFE(BaseAgent):
         if y_hat_dropped.shape != y_t_dropped.shape:
             print("y_t and y_hat shape not matching")
 
-        print("calculate loss")
         # TODO: try different loss for the validation
         loss = self.criterion(y_hat_dropped, y_t_dropped)
-        log.info(f"loss at epoch {self.current_epoch+1} ({period}): {loss:.8f}")
+
+        log.info(f"Loss: {loss:.8f}")
+        log.info(
+            f"KGE for the basin {self.train_data.basin_ids[0]}: {float(kge[0]):.8}"
+        )
 
         return loss
 
@@ -401,7 +411,10 @@ class DifferentiableCFE(BaseAgent):
 
     def validate(self):
         with torch.no_grad():
-            y_hat = self.run_process_model(period="validate")
+            y_hat = self.run_model(period="validate", run_mlp=True)
+        log.info(
+            f"At epoch {self.current_epoch+1}/{self.cfg.models.hyperparameters.epochs} (validate)"
+        )
         loss = self.evaluate(
             y_hat,
             self.validate_data.y,
@@ -431,7 +444,7 @@ class DifferentiableCFE(BaseAgent):
 
         # Run one last time
         if period == "train":
-            y_hat_ = self.run_process_model(period="train")
+            y_hat_ = self.run_model(period="train", run_mlp=True)
             y_t_ = self.train_data.y
             Cgw_record = self.Cgw_train
             satdk_record = self.satdk_train
@@ -537,6 +550,10 @@ class DifferentiableCFE(BaseAgent):
             elif period == "validate":
                 start_time = self.validate_data.start_time
                 end_time = self.validate_data.end_time
+            else:
+                log.debug(
+                    "invalid parameter for period -- choose from 'train' or 'validate'"
+                )
             time_range = pd.date_range(start_time, end_time, freq="H")
 
             if plot_figure:
