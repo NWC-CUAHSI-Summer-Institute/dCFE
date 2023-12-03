@@ -342,7 +342,13 @@ class DifferentiableCFE(BaseAgent):
         # Run CFE at each timestep
         for t, (x, _) in enumerate(tqdm(dataloader, desc=period)):
             if run_mlp:
-                self.model.mlp_forward(t, "validate")
+                self.model.mlp_forward(t, period)
+                if period == "train":
+                    self.Cgw_train[:, t] = self.model.Cgw.detach().numpy()
+                    self.satdk_train[:, t] = self.model.satdk.detach().numpy()
+                elif period == "validate":
+                    self.Cgw_validate[:, t] = self.model.Cgw.detach().numpy()
+                    self.satdk_validate[:, t] = self.model.satdk.detach().numpy()
             runoff = self.model(x)
             y_hat[:, t] = runoff.detach()
 
@@ -413,7 +419,7 @@ class DifferentiableCFE(BaseAgent):
         with torch.no_grad():
             y_hat = self.run_model(period="validate", run_mlp=True)
         log.info(
-            f"At epoch {self.current_epoch+1}/{self.cfg.models.hyperparameters.epochs} (validate)"
+            f"At epoch {self.current_epoch}/{self.cfg.models.hyperparameters.epochs} (validate)"
         )
         loss = self.evaluate(
             y_hat,
