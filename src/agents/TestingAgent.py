@@ -96,7 +96,7 @@ class TestingAgent:
                     model.mlp_forward(t, "test")
                     Cgw_test[:, t] = model.Cgw.detach().numpy()
                     satdk_test[:, t] = model.satdk.detach().numpy()
-            runoff = model(x, t)
+            runoff = model(x)
             y_hat[:, t] = runoff
 
         return y_hat, Cgw_test, satdk_test

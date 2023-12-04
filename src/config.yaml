@@ -12,7 +12,7 @@ num_processes: 1
 
 
 ################## CHANGE HERE #######################
-run_type: ML # Choose from: "generate_synthetic", "ML", "ML_synthetic", "ML_test"
+run_type: ML_test # Choose from: "generate_synthetic", "ML", "ML_synthetic", "ML_test"
 # ML: training & validating ML against observed data
 # ML_synthetic: training & validating ML against synthetic data
 # generate_synthetic: generate synthetic data for ML_synthetic
@@ -28,8 +28,8 @@ synthetic:
   satdk: 1.0e-04
 
 test:
-  input_dir: ${cwd}\output\2023-11-30_output_1430100
-  epoch_to_use: 15
+  input_dir: ${cwd}\output\2023-12-03_output_01057000
+  epoch_to_use: 10
 
 conversions:
   cm_to_mm: 10.0

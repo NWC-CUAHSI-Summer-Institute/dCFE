@@ -1,7 +1,9 @@
 data_dir: ${cwd}\data
 attributes_file: ${cwd}\data\lumped_soil_attributes_mean_soilindex_included.csv
 basin_ids: 
-  - '14301000'
+  - '01057000'
+  # - '01057000'
+  # - '14301000'
   # - '07261000'
   # - '14301000'
   # - '11476600'
@@ -20,10 +22,14 @@ validate:
   start_time: '2012-03-01 00:00:00'
   end_time: '2013-02-28 00:00:00'
 test:
-  start_time: '2013-03-01 00:00:00'
-  end_time: '2014-02-28 23:00:00'
+  start_time: '2013-10-01 00:00:00'
+  end_time: '2014-09-30 23:00:00'
 timesteps_per_day: 24
 
+# # basinid: '11476600'
+# test:
+#   start_time: '2013-10-01 00:00:00'
+#   end_time: '2014-09-30 23:00:00'
 
 # basin_id: '14301000' has high flow during wet winter
 # train:

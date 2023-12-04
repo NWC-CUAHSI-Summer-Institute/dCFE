@@ -387,7 +387,7 @@ class DifferentiableCFE(BaseAgent):
 
         # Save results
         # Evaluate
-        kge = he.evaluator(he.kge, y_hat_np[0], y_t_np[0])
+        kge = he.evaluator(he.kge, simulations=y_hat_np[0], evaluation=y_t_np[0])
 
         # Compute the overall loss
         mask = torch.isnan(y_t)
@@ -419,7 +419,7 @@ class DifferentiableCFE(BaseAgent):
         with torch.no_grad():
             y_hat = self.run_model(period="validate", run_mlp=True)
         log.info(
-            f"At epoch {self.current_epoch}/{self.cfg.models.hyperparameters.epochs} (validate)"
+            f"At epoch {self.current_epoch+1}/{self.cfg.models.hyperparameters.epochs} (validate)"
         )
         loss = self.evaluate(
             y_hat,
@@ -564,7 +564,9 @@ class DifferentiableCFE(BaseAgent):
 
             if plot_figure:
                 # Plot
-                eval_metrics = he.evaluator(he.kge, y_hat[i], y_t[i])[0]
+                eval_metrics = he.evaluator(
+                    he.kge, simulations=y_hat[i], evaluation=y_t[i]
+                )[0]
                 fig, axes = plt.subplots(figsize=(5, 5))
                 if self.cfg.run_type == "ML_synthetic_test":
                     eval_label = "evaluation (synthetic)"
