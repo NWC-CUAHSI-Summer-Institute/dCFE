@@ -22,16 +22,18 @@ T = TypeVar("T")
 
 
 class Data(Dataset):
-    def __init__(self, cfg: DictConfig) -> None:
+    def __init__(self, cfg: DictConfig, period: str) -> None:
         super().__init__()
 
         self.cfg = cfg
+        self.period = period
 
         # Read in start and end datetime, Get the size of the observation
+        datetime_format = r"%Y-%m-%d %H:%M:%S"
         self.start_time = datetime.strptime(
-            cfg.data["start_time"], r"%Y-%m-%d %H:%M:%S"
+            cfg.data[period].start_time, datetime_format
         )
-        self.end_time = datetime.strptime(cfg.data["end_time"], r"%Y-%m-%d %H:%M:%S")
+        self.end_time = datetime.strptime(cfg.data[period].end_time, datetime_format)
 
         self.n_timesteps = self.calc_timestep_size(cfg)
 
@@ -43,17 +45,19 @@ class Data(Dataset):
         # Read in data
         self.x = self.get_forcings(cfg)
 
+        # Get dynamic attributes
         # self.c = self.get_dynamic_attributes(cfg) # This use NLDAS attributes that are NOT used for forcing calculation
-        self.c = self.get_forcing_as_attributes(
+        self.c, self.min_c, self.max_c = self.get_forcing_as_attributes(
             cfg
         )  # This use NLDAS attributes that are used as forcing
 
-        self.basin_attributes = self.get_static_attributes(cfg)
+        # Stattic attributes
+        # self.basin_attributes = self.get_static_attributes(cfg)
 
-        if (cfg.run_type == "ML") | (cfg.run_type == "generate_synthetic"):
-            self.y = self.get_observations(cfg)
-        elif cfg.run_type == "ML_synthetic_test":
+        if cfg.run_type == "ML_synthetic_test":
             self.y = self.get_synthetic(cfg)
+        else:
+            self.y = self.get_observations(cfg)
 
         self.params = self.get_cfe_params(cfg)
 
@@ -87,7 +91,9 @@ class Data(Dataset):
         output_tensor = torch.zeros([self.num_basins, self.n_timesteps, 2])
 
         # Read forcing data into pandas dataframe
-        for i, basin_id in tqdm(enumerate(self.basin_ids), desc="Reading forcing data"):
+        for i, basin_id in tqdm(
+            enumerate(self.basin_ids), desc=f"Reading forcing data ({self.period})"
+        ):
             forcing_df_ = pd.read_csv(cfg.data.forcing_file.format(basin_id))
             forcing_df_.set_index(pd.to_datetime(forcing_df_["date"]), inplace=True)
             forcing_df = forcing_df_[self.start_time : self.end_time].copy()
@@ -110,13 +116,15 @@ class Data(Dataset):
             x_tr = x_.transpose(0, 1)
             output_tensor[i] = x_tr
 
+        # TODO: Get historical max min as scaling metrics
+
         return output_tensor
 
     def get_observations(self, cfg: DictConfig):
         output_tensor = torch.zeros([self.num_basins, self.n_timesteps, 1])
 
         for i, basin_id in tqdm(
-            enumerate(self.basin_ids), desc="Reading observation data"
+            enumerate(self.basin_ids), desc=f"Reading observation data ({self.period})"
         ):
             obs_q_ = pd.read_csv(cfg.data.compare_results_file.format(basin_id))
             obs_q_.set_index(pd.to_datetime(obs_q_["date"]), inplace=True)
@@ -159,7 +167,9 @@ class Data(Dataset):
         output_tensor[:, :, :-1] = self.x
 
         # Read forcing data into pandas dataframe
-        for i, basin_id in tqdm(enumerate(self.basin_ids), desc="Reading forcing data"):
+        for i, basin_id in tqdm(
+            enumerate(self.basin_ids), desc=f"Reading forcing data ({self.period})"
+        ):
             forcing_df_ = pd.read_csv(cfg.data.forcing_file.format(basin_id))
             forcing_df_.set_index(pd.to_datetime(forcing_df_["date"]), inplace=True)
             forcing_df = forcing_df_[self.start_time : self.end_time].copy()
@@ -174,7 +184,10 @@ class Data(Dataset):
             # c_tr = c_.transpose(0, 1) No need now because it is only one attribute
             output_tensor[i, :, -1] = Tair
 
-        return output_tensor
+        historical_min, _ = torch.min(output_tensor, dim=1)
+        historical_max, _ = torch.max(output_tensor, dim=1)
+
+        return output_tensor, historical_min, historical_max
 
     def get_dynamic_attributes(self, cfg: DictConfig):
         output_tensor = torch.zeros(
@@ -183,7 +196,8 @@ class Data(Dataset):
 
         # Read forcing data into pandas dataframe
         for i, basin_id in tqdm(
-            enumerate(self.basin_ids), desc="Reading dynamic attributes"
+            enumerate(self.basin_ids),
+            desc=f"Reading dynamic attributes ({self.period})",
         ):
             forcing_df_ = pd.read_csv(cfg.data.forcing_file.format(basin_id))
             forcing_df_.set_index(pd.to_datetime(forcing_df_["date"]), inplace=True)
@@ -343,3 +357,21 @@ class Data(Dataset):
             stacked_GIUH_ordinates[i].extend([0.0] * additional_zeros)
 
         return stacked_GIUH_ordinates
+
+
+class BatchData(Dataset):
+    def __init__(self, data, start_idx=0, end_idx=None):
+        """
+        Args:
+            data (list or array): List or array of data points.
+            start_idx (int): Starting index of the data to use.
+            end_idx (int): Ending index of the data to use.
+        """
+        self.x = data.x[:, start_idx:end_idx, :]
+
+    def __len__(self):
+        return self.x.shape[1]
+
+    def __getitem__(self, idx):
+        # Assuming each data point is a tuple (input, target)
+        return self.x[:, idx, :]

@@ -261,6 +261,14 @@ class BMI_CFE:
         self.current_time_step = 0
         self.current_time = pd.Timestamp(year=2007, month=10, day=1, hour=0)
 
+        # _________________________________________________
+        # BMI variables
+        for var_name in self._output_var_names:
+            if var_name in self._values and torch.is_tensor(self._values[var_name]):
+                self._values[var_name] = torch.zeros(
+                    (1, self.num_basins), dtype=torch.float64
+                )
+
         # ________________________________________________
         # Inputs
         self.timestep_rainfall_input_m = torch.zeros(
@@ -473,6 +481,41 @@ class BMI_CFE:
                 Schaake: {self.Schaake_adjusted_magic_constant_by_soil_type:.3f};\
                 Soilcoeff: {self.soil_reservoir['coeff_primary']:.5f}"
             )
+
+    def detach_gradients(self):
+        for attr_name in dir(self):
+            if attr_name.startswith("__"):
+                continue
+            attr = getattr(self, attr_name)
+            if torch.is_tensor(attr):
+                setattr(self, attr_name, attr.detach())
+
+        for param in self.cfe_params.values():
+            if torch.is_tensor(param):
+                param = param.detach()
+
+        for var_name in self._output_var_names:
+            if var_name in self._values and torch.is_tensor(self._values[var_name]):
+                self._values[var_name] = self._values[var_name].detach()
+
+        # Detach tensors in self.cfe_params
+        if isinstance(self.cfe_params, dict):
+            self.detach_tensors_in_dict(self.cfe_params["soil_params"])
+
+        # Detach tensors in self.soil_reservoir
+        if isinstance(self.soil_reservoir, dict):
+            self.detach_tensors_in_dict(self.soil_reservoir)
+
+        # Detach tensors in self.gw_reservoir
+        if isinstance(self.gw_reservoir, dict):
+            self.detach_tensors_in_dict(self.gw_reservoir)
+
+    def detach_tensors_in_dict(self, dict_obj):
+        for key, value in dict_obj.items():
+            if torch.is_tensor(value):
+                dict_obj[key] = value.detach()
+            elif isinstance(value, dict):  # In case of nested dictionaries
+                self.detach_tensors_in_dict(value)
 
     # __________________________________________________________________________________________________________
     # __________________________________________________________________________________________________________

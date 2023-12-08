@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - data: \config\test
+  - data: \config\base
   - models: \config\base
 
 cwd: G:\Shared drives\SI_NextGen_Aridity\dCFE\
@@ -12,10 +12,11 @@ num_processes: 1
 
 
 ################## CHANGE HERE #######################
-run_type: ML # Choose from: "generate_synthetic" or "ML" or "ML_synthetic_test"
-# ML: runn ML against observed data
-# ML_synthetic_test: runn ML against synthetic data
-# generate_synthetic: generate synthetic data for ML_synthetic_test
+run_type: ML_test # Choose from: "generate_synthetic", "ML", "ML_synthetic", "ML_test"
+# ML: training & validating ML against observed data
+# ML_synthetic: training & validating ML against synthetic data
+# generate_synthetic: generate synthetic data for ML_synthetic
+# ML_test: testing ML
 soil_scheme: classic # Choose from: "ode" or "classic"
 ######################################################
 
@@ -25,6 +26,10 @@ synthetic:
   nams: synthetic_${soil_scheme}.csv
   Cgw: 1.0e-05
   satdk: 1.0e-04
+
+test:
+  input_dir: ${cwd}\output\2023-12-03_output_01057000
+  epoch_to_use: 10
 
 conversions:
   cm_to_mm: 10.0

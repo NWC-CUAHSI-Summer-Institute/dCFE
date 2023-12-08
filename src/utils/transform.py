@@ -32,21 +32,12 @@ def from_physical(x, param):
     """
 
 
-def normalization(x):
+def normalization(x, min_x, max_x):
     """
     A min/max Scaler for each feature to be fed into the MLP
     :param x:
     :return:
     """
-    min_max_scaler = preprocessing.MinMaxScaler()
-    x_trans = x.transpose(2, 0).transpose(2, 1)
-    x_tensor = torch.zeros(x_trans.shape)
+    normalized_x = (x - min_x) / (max_x - min_x)
 
-    # Apply the scaling to each attribute across multiple basins
-    # therefore the max value is the maximum of an attribute for all the target basins
-    for i in range(0, x_trans.shape[0]):
-        x_tensor[i, :] = torch.tensor(
-            min_max_scaler.fit_transform(x_trans[i, :].transpose(1, 0))
-        ).transpose(1, 0)
-    """Transposing to do correct normalization"""
-    return x_tensor.transpose(1, 0).transpose(1, 2)
+    return normalized_x
